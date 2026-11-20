@@ -1,0 +1,647 @@
+/* ============================================================
+   Blush Beauty — main.js
+   Shared UI layer: inline SVG icon set (no emojis), header,
+   navigation, search, mobile drawer, footer, cart & wishlist
+   stores (localStorage), toasts, dialogs and the shared
+   product card renderer.
+   ============================================================ */
+(function () {
+  'use strict';
+
+  var I = window.I18N;
+  var DB = window.DB;
+
+  /* ----------------------------------------------------------------
+     Inline SVG icon set (professional, consistent, no emojis)
+  ---------------------------------------------------------------- */
+  var ICONS = {
+    search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+    bag: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+    heart: '<path d="M19.5 13.9 12 21l-7.5-7.1A5.4 5.4 0 0 1 12 6.3a5.4 5.4 0 0 1 7.5 7.6Z"/>',
+    heartFill: '<path d="M19.5 13.9 12 21l-7.5-7.1A5.4 5.4 0 0 1 12 6.3a5.4 5.4 0 0 1 7.5 7.6Z" fill="currentColor"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    chevDown: '<path d="m6 9 6 6 6-6"/>',
+    chevRight: '<path d="m9 18 6-6-6-6"/>',
+    chevLeft: '<path d="m15 18-6-6 6-6"/>',
+    arrowRight: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+    arrowLeft: '<path d="M19 12H5"/><path d="m11 6-6 6 6 6"/>',
+    trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    checkCircle: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 5-5"/>',
+    alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5h.01"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>',
+    box: '<path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/>',
+    truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+    phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/>',
+    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+    whatsapp: '<path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.16-.17.2-.35.22-.64.08-.3-.15-1.26-.47-2.39-1.48-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.6.13-.14.3-.35.44-.52.15-.18.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.61-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.87 1.22 3.07c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.62.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2-1.41.25-.7.25-1.29.18-1.42-.08-.12-.28-.2-.57-.34M12.05 21.79a9.87 9.87 0 0 1-5.03-1.38l-.36-.21-3.74.98 1-3.65-.24-.37a9.86 9.86 0 0 1-1.51-5.26c0-5.45 4.43-9.88 9.89-9.88a9.82 9.82 0 0 1 6.99 2.9 9.82 9.82 0 0 1 2.9 7c0 5.45-4.44 9.88-9.9 9.88m8.42-18.3A11.82 11.82 0 0 0 12.05 0C5.5 0 .18 5.32.17 11.87c0 2.09.55 4.13 1.59 5.93L.07 24l6.33-1.66a11.9 11.9 0 0 0 5.65 1.44h.01c6.55 0 11.87-5.32 11.88-11.87a11.8 11.8 0 0 0-3.47-8.42Z"/>',
+    instagram: '<rect x="2.5" y="2.5" width="19" height="19" rx="5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.4" cy="6.6" r="0.9" fill="currentColor" stroke="none"/>',
+    edit: '<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 9 5-5 5 5"/><path d="M12 4v10"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-4.5-4.5L7 21"/>',
+    filter: '<path d="M4 6h16M7 12h10m-7 6h4"/>',
+    tag: '<path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.43 2.43 0 0 0 3.4 0l6.6-6.6a2.43 2.43 0 0 0 0-3.4Z"/><circle cx="7.5" cy="7.5" r="1.2"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12.5 9 5 9-5"/><path d="m3 17.5 9 5 9-5"/>',
+    sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M2 14h4M10 8h4M18 16h4"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    refresh: '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
+    chart: '<path d="M3 3v18h18"/><path d="M7 15v-4M12 15V7M17 15v-7"/>',
+    home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1Z"/>',
+    camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3"/>'
+  };
+
+  function icon(name, size, cls) {
+    var s = size || 20;
+    var filled = (name === 'heartFill' || name === 'whatsapp');
+    return '<svg class="icon ' + (cls || '') + '" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (filled ? '0' : '1.6') + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
+  }
+
+  /* ----------------------------------------------------------------
+     Utilities
+  ---------------------------------------------------------------- */
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function toast(msg, type) {
+    var root = document.getElementById('toast-root');
+    if (!root) return;
+    var el = document.createElement('div');
+    el.className = 'toast ' + (type === 'error' ? 'toast-error' : type === 'info' ? 'toast-info' : 'toast-ok');
+    el.innerHTML = icon(type === 'error' ? 'alert' : type === 'info' ? 'info' : 'checkCircle', 18) +
+      '<span>' + esc(msg) + '</span>';
+    root.appendChild(el);
+    setTimeout(function () { el.classList.add('show'); }, 10);
+    setTimeout(function () {
+      el.classList.remove('show');
+      setTimeout(function () { el.remove(); }, 300);
+    }, 2800);
+  }
+
+  function confirmDialog(opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      var back = document.createElement('div');
+      back.className = 'modal-backdrop';
+      back.innerHTML =
+        '<div class="modal" role="dialog" aria-modal="true">' +
+        '<h3 class="modal-title">' + esc(opts.title || I.t('close')) + '</h3>' +
+        '<p class="modal-text">' + esc(opts.text || '') + '</p>' +
+        (opts.typeInput ?
+          '<input class="input confirm-input" type="text" autocomplete="off" placeholder="' + esc(opts.typeText || '') + '">' : '') +
+        '<div class="modal-actions">' +
+        '<button class="btn btn-ghost" data-act="cancel">' + esc(opts.cancelLabel || I.t('ad_cancel')) + '</button>' +
+        '<button class="btn ' + (opts.danger ? 'btn-danger' : 'btn-primary') + '" data-act="ok">' + esc(opts.okLabel || I.t('ad_save')) + '</button>' +
+        '</div></div>';
+      document.body.appendChild(back);
+      document.body.classList.add('no-scroll');
+      var input = back.querySelector('.confirm-input');
+      var okBtn = back.querySelector('[data-act="ok"]');
+      if (input) okBtn.disabled = true;
+      function close(val) {
+        back.remove();
+        document.body.classList.remove('no-scroll');
+        document.removeEventListener('keydown', onKey);
+        resolve(val);
+      }
+      function onKey(e) { if (e.key === 'Escape') close(false); }
+      back.addEventListener('click', function (e) {
+        if (e.target === back) close(false);
+        var act = e.target.closest('[data-act]');
+        if (!act) return;
+        if (act.dataset.act === 'ok') {
+          if (input && input.value.trim() !== opts.typeText) return;
+          close(true);
+        } else close(false);
+      });
+      if (input) input.addEventListener('input', function () {
+        okBtn.disabled = input.value.trim() !== opts.typeText;
+      });
+      document.addEventListener('keydown', onKey);
+      setTimeout(function () { (input || okBtn).focus(); }, 30);
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     Cart & wishlist stores (localStorage, guests only)
+  ---------------------------------------------------------------- */
+  var CART_KEY = 'blush_cart_v1';
+  var WISH_KEY = 'blush_wishlist_v1';
+
+  function readKey(k) {
+    try {
+      var v = JSON.parse(localStorage.getItem(k));
+      return Array.isArray(v) ? v : [];
+    } catch (e) { return []; }
+  }
+  function writeKey(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ }
+  }
+
+  var Cart = {
+    items: function () { return readKey(CART_KEY); },
+    count: function () {
+      return readKey(CART_KEY).reduce(function (s, i) { return s + (Number(i.qty) || 0); }, 0);
+    },
+    qtyOf: function (id) {
+      var f = readKey(CART_KEY).find(function (x) { return x.id === id; });
+      return f ? f.qty : 0;
+    },
+    add: function (id, qty) {
+      qty = Math.max(1, Math.min(99, Number(qty) || 1));
+      var arr = readKey(CART_KEY);
+      var f = arr.find(function (x) { return x.id === id; });
+      if (f) f.qty = Math.min(99, f.qty + qty);
+      else arr.push({ id: id, qty: qty });
+      writeKey(CART_KEY, arr);
+      storeChanged('cart');
+    },
+    setQty: function (id, qty) {
+      var arr = readKey(CART_KEY);
+      var idx = arr.findIndex(function (x) { return x.id === id; });
+      if (idx === -1) return;
+      if (qty <= 0) arr.splice(idx, 1);
+      else arr[idx].qty = Math.min(99, Number(qty));
+      writeKey(CART_KEY, arr);
+      storeChanged('cart');
+    },
+    remove: function (id) {
+      writeKey(CART_KEY, readKey(CART_KEY).filter(function (x) { return x.id !== id; }));
+      storeChanged('cart');
+    },
+    clear: function () {
+      writeKey(CART_KEY, []);
+      storeChanged('cart');
+    }
+  };
+
+  var Wish = {
+    items: function () { return readKey(WISH_KEY); },
+    count: function () { return readKey(WISH_KEY).length; },
+    has: function (id) { return readKey(WISH_KEY).indexOf(id) !== -1; },
+    add: function (id) {
+      var arr = readKey(WISH_KEY);
+      if (arr.indexOf(id) === -1) { arr.push(id); writeKey(WISH_KEY, arr); storeChanged('wish'); return true; }
+      return false;
+    },
+    remove: function (id) {
+      var before = readKey(WISH_KEY).length;
+      writeKey(WISH_KEY, readKey(WISH_KEY).filter(function (x) { return x !== id; }));
+      if (readKey(WISH_KEY).length !== before) storeChanged('wish');
+    },
+    toggle: function (id) {
+      if (this.has(id)) { this.remove(id); return false; }
+      this.add(id);
+      return true;
+    }
+  };
+
+  function storeChanged(kind) {
+    updateCounts();
+    document.dispatchEvent(new CustomEvent(kind === 'cart' ? 'cart:change' : 'wish:change'));
+  }
+
+  /* ----------------------------------------------------------------
+     Shared product rendering
+  ---------------------------------------------------------------- */
+  function money(n) { return I.fmtMoney(n); }
+
+  function initials(name) {
+    var words = String(name || '').trim().split(/\s+/).filter(Boolean);
+    var s = (words.length ? words[0].charAt(0) : '') + (words.length > 1 ? words[1].charAt(0) : '');
+    return s.toUpperCase() || 'BB';
+  }
+
+  function phHtml(name, seed, cls) {
+    var tone = (seed || 0) % 3;
+    return '<div class="ph ph-tone-' + tone + ' ' + (cls || '') + '"><span>' + esc(initials(name)) + '</span></div>';
+  }
+
+  function seedOf(p) {
+    var s = String(p.sku || p.id || '');
+    var n = 0;
+    for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
+    return n;
+  }
+
+  function mediaHtml(p) {
+    if (p.images && p.images.length) {
+      return '<img src="' + esc(p.images[0]) + '" alt="' + esc(DB.locName(p)) + '" loading="lazy">';
+    }
+    return phHtml(DB.locName(p), seedOf(p));
+  }
+
+  function stockLabel(p) {
+    if (p.stock <= 0) return '<span class="stock-dot dot-out"></span>' + I.t('out_of_stock');
+    if (p.stock <= p.lowThreshold) {
+      return '<span class="stock-dot dot-low"></span>' + I.t('low_stock', { n: p.stock });
+    }
+    return '<span class="stock-dot dot-ok"></span>' + I.t('in_stock');
+  }
+
+  function productCard(p) {
+    var wished = Wish.has(p.id);
+    var badges = '';
+    if (p.onSale) badges += '<span class="badge badge-off">' + I.t('off_badge', { p: p.pct }) + '</span>';
+    if (p.bestseller) badges += '<span class="badge badge-best">' + I.t('bestseller_badge') + '</span>';
+    if (p.stock <= 0) badges += '<span class="badge badge-out">' + I.t('sold_out_badge') + '</span>';
+
+    return '' +
+      '<article class="product-card" data-id="' + esc(p.id) + '">' +
+      '<div class="card-media">' +
+      '<a class="card-link" href="product.html?id=' + encodeURIComponent(p.id) + '" aria-label="' + esc(DB.locName(p)) + '">' +
+      mediaHtml(p) +
+      '</a>' +
+      '<div class="card-badges">' + badges + '</div>' +
+      '<button type="button" class="wish-btn' + (wished ? ' active' : '') + '" data-wish-id="' + esc(p.id) + '" ' +
+      'aria-label="' + (wished ? I.t('pdp_in_wish') : I.t('pdp_add_wish')) + '">' + icon(wished ? 'heartFill' : 'heart', 18) + '</button>' +
+      '</div>' +
+      '<div class="card-info">' +
+      '<p class="card-cat">' + esc(catLabel(p)) + '</p>' +
+      '<h3 class="card-name"><a href="product.html?id=' + encodeURIComponent(p.id) + '">' + esc(DB.locName(p)) + '</a></h3>' +
+      '<div class="card-prices">' +
+      '<span class="price-now">' + money(p.finalPrice) + '</span>' +
+      (p.onSale ? '<span class="price-old">' + money(p.price) + '</span>' : '') +
+      '</div>' +
+      '<p class="card-stock">' + stockLabel(p) + '</p>' +
+      '</div>' +
+      '</article>';
+  }
+
+  function catLabel(p) {
+    var c = I18N.lang === 'ar' ? (p.catNameAr || p.catNameEn) : (p.catNameEn || p.catNameAr);
+    var s = I18N.lang === 'ar' ? (p.subNameAr || p.subNameEn) : (p.subNameEn || p.subNameAr);
+    return s ? (c + ' \u00b7 ' + s) : (c || '');
+  }
+
+  function qtyStepperHtml(qty, max, ctx) {
+    max = max || 99;
+    return '' +
+      '<div class="qty-stepper" data-ctx="' + esc(ctx || '') + '">' +
+      '<button type="button" class="qty-btn" data-dir="-1" aria-label="-">' + icon('minus', 14) + '</button>' +
+      '<input class="qty-input" type="text" inputmode="numeric" value="' + qty + '" data-max="' + max + '" aria-label="' + I.t('qty') + '">' +
+      '<button type="button" class="qty-btn" data-dir="1" aria-label="+" ' + (qty >= max ? 'disabled' : '') + '>' + icon('plus', 14) + '</button>' +
+      '</div>';
+  }
+
+  function wireQtySteppers(rootEl, onChange) {
+    var root = rootEl || document;
+    root.querySelectorAll('.qty-stepper').forEach(function (st) {
+      var input = st.querySelector('.qty-input');
+      var max = Number(input.dataset.max) || 99;
+      st.querySelectorAll('.qty-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var v = parseInt(input.value, 10) || 1;
+          v += Number(btn.dataset.dir);
+          v = Math.max(1, Math.min(max, v));
+          input.value = v;
+          syncBtns();
+          if (onChange) onChange(v, st.dataset.ctx);
+        });
+      });
+      input.addEventListener('change', function () {
+        var v = parseInt(input.value, 10) || 1;
+        input.value = Math.max(1, Math.min(max, v));
+        syncBtns();
+        if (onChange) onChange(parseInt(input.value, 10), st.dataset.ctx);
+      });
+      function syncBtns() {
+        var v = parseInt(input.value, 10) || 1;
+        st.querySelector('[data-dir="1"]').disabled = v >= max;
+        st.querySelector('[data-dir="-1"]').disabled = v <= 1;
+      }
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     Header / footer
+  ---------------------------------------------------------------- */
+  var NAV_LINKS = [
+    { key: 'home', label: 'nav_home', href: 'index.html', match: function (u) { return u.pathname.endsWith('/index.html') || u.pathname.endsWith('/'); } },
+    { key: 'shop', label: 'nav_shop', href: 'shop.html', match: function (u) { return u.pathname.endsWith('/shop.html') && !u.search; } },
+    { key: 'makeup', label: 'nav_makeup', href: 'shop.html?cat=makeup', match: function (u) { return u.pathname.endsWith('/shop.html') && u.search.indexOf('cat=makeup') !== -1; } },
+    { key: 'perfumes', label: 'nav_perfumes', href: 'shop.html?cat=perfumes', match: function (u) { return u.pathname.endsWith('/shop.html') && u.search.indexOf('cat=perfumes') !== -1; } },
+    { key: 'flash', label: 'nav_flash', href: 'shop.html?cat=flash', match: function (u) { return u.pathname.endsWith('/shop.html') && u.search.indexOf('cat=flash') !== -1; } }
+  ];
+
+  function renderHeader() {
+    var host = document.getElementById('site-header');
+    if (!host) return;
+    var navHtml = NAV_LINKS.map(function (l) {
+      return '<a data-nav="' + l.key + '" href="' + l.href + '" data-i18n="' + l.label + '"></a>';
+    }).join('');
+
+    host.innerHTML =
+      '<a class="skip-link" href="#main" data-i18n="skip_content"></a>' +
+      '<div class="header-main"><div class="container header-grid">' +
+      '<button type="button" class="icon-btn nav-open" data-i18n-aria="menu">' + icon('menu', 22) + '</button>' +
+      '<a class="brand" href="index.html" data-brand-slot>' +
+      '<span class="brand-main">BLUSH</span><span class="brand-sub">BEAUTY</span>' +
+      '</a>' +
+      '<nav class="main-nav" aria-label="Main">' + navHtml + '</nav>' +
+      '<div class="header-actions">' +
+      '<button type="button" class="icon-btn search-open" data-i18n-aria="search_title">' + icon('search', 20) + '</button>' +
+      '<a class="icon-btn wish-link" href="wishlist.html" data-i18n-aria="nav_wishlist">' + icon('heart', 20) +
+      '<span class="count-pill" data-wish-count hidden></span></a>' +
+      '<a class="icon-btn cart-link" href="cart.html" data-i18n-aria="cart_title">' + icon('bag', 20) +
+      '<span class="count-pill" data-cart-count hidden></span></a>' +
+      '<button type="button" class="lang-btn" data-lang-toggle></button>' +
+      '</div>' +
+      '</div></div>' +
+      '<div class="search-panel" id="search-panel" hidden>' +
+      '<div class="container search-panel-inner">' +
+      '<form class="search-form" action="shop.html" method="get" role="search">' +
+      icon('search', 18, 'search-glyph') +
+      '<input id="site-search-input" type="search" name="q" autocomplete="off" data-i18n-ph="search_ph" aria-label="' + I.t('search_title') + '">' +
+      '<button type="button" class="icon-btn search-close" data-i18n-aria="close">' + icon('x', 20) + '</button>' +
+      '</form>' +
+      '<div class="search-results" id="search-results" hidden></div>' +
+      '</div></div>' +
+      '<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>' +
+      '<nav class="mobile-drawer" id="mobile-drawer" aria-label="' + I.t('menu') + '" hidden>' +
+      '<div class="drawer-head">' +
+      '<span class="brand-main">BLUSH</span><span class="brand-sub">BEAUTY</span>' +
+      '<button type="button" class="icon-btn drawer-close" data-i18n-aria="close">' + icon('x', 22) + '</button>' +
+      '</div>' +
+      '<div class="drawer-links">' + navHtml +
+      '<a href="wishlist.html" data-i18n="nav_wishlist"></a>' +
+      '</div>' +
+      '<div class="drawer-foot">' +
+      '<button type="button" class="lang-btn" data-lang-toggle></button>' +
+      '</div>' +
+      '</nav>';
+
+    I.apply(host);
+    updateLangBtns();
+    markActiveNav();
+
+    /* search */
+    var panel = host.querySelector('#search-panel');
+    var input = host.querySelector('#site-search-input');
+    var results = host.querySelector('#search-results');
+    host.querySelector('.search-open').addEventListener('click', function () { openSearch(true); });
+    host.querySelector('.search-close').addEventListener('click', function () { openSearch(false); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { openSearch(false); closeDrawer(); }
+    });
+
+    var debounceT = null;
+    input.addEventListener('input', function () {
+      clearTimeout(debounceT);
+      var q = input.value.trim();
+      if (q.length < 2) { results.hidden = true; results.innerHTML = ''; return; }
+      debounceT = setTimeout(function () {
+        DB.search(q, 6).then(function (items) {
+          if (input.value.trim().length < 2) return;
+          if (!items.length) {
+            results.innerHTML = '<p class="search-empty">' + I.t('search_no', { q: esc(q) }) + '</p>';
+          } else {
+            results.innerHTML = '<p class="search-cap">' + I.t('search_suggestions') + '</p>' +
+              items.map(function (p) {
+                return '<a class="search-row" href="product.html?id=' + encodeURIComponent(p.id) + '">' +
+                  '<span class="search-thumb">' + mediaHtml(p) + '</span>' +
+                  '<span class="search-name">' + esc(DB.locName(p)) + '</span>' +
+                  '<span class="search-price">' + money(p.finalPrice) + '</span></a>';
+              }).join('') +
+              '<a class="search-all" href="shop.html?q=' + encodeURIComponent(q) + '">' + I.t('search_view_all') + ' ' + icon('arrowRight', 14, 'flip-rtl') + '</a>';
+          }
+          results.hidden = false;
+        }).catch(function () {
+          results.hidden = true;
+        });
+      }, 220);
+    });
+
+    function openSearch(show) {
+      panel.hidden = !show;
+      if (show) { setTimeout(function () { input.focus(); }, 30); }
+      else { results.hidden = true; }
+    }
+
+    /* mobile drawer */
+    var drawer = host.querySelector('#mobile-drawer');
+    var backdrop = host.querySelector('#drawer-backdrop');
+    host.querySelector('.nav-open').addEventListener('click', function () {
+      drawer.hidden = false;
+      backdrop.hidden = false;
+      document.body.classList.add('no-scroll');
+    });
+    host.querySelector('.drawer-close').addEventListener('click', closeDrawer);
+    backdrop.addEventListener('click', closeDrawer);
+    drawer.querySelectorAll('.drawer-links a').forEach(function (a) {
+      a.addEventListener('click', closeDrawer);
+    });
+    function closeDrawer() {
+      if (!drawer) return;
+      drawer.hidden = true;
+      backdrop.hidden = true;
+      document.body.classList.remove('no-scroll');
+    }
+
+    /* language buttons */
+    host.querySelectorAll('[data-lang-toggle]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        I.setLang(I.lang === 'en' ? 'ar' : 'en');
+      });
+    });
+    document.addEventListener('lang:change', function () {
+      updateLangBtns();
+      I.apply(host);
+      markActiveNav();
+    });
+
+    /* brand + demo banner from settings */
+    DB.getSettings().then(function (s) {
+      var slot = host.querySelector('[data-brand-slot]');
+      if (!slot) return;
+      var name = I.lang === 'ar' ? (s.brand_name_ar || s.brand_name_en || 'BLUSH BEAUTY') : (s.brand_name_en || 'BLUSH BEAUTY');
+      if (s.brand_name_en || s.brand_name_ar) {
+        slot.innerHTML = '<span class="brand-main">' + esc(name) + '</span>';
+      }
+      if (s.logo_url) {
+        slot.innerHTML = '<img class="brand-logo" src="' + esc(s.logo_url) + '" alt="' + esc(name) + '">';
+      }
+    }).catch(function () { /* keep default wordmark */ });
+
+    if (DB.mode === 'demo') {
+      var demoBar = document.createElement('div');
+      demoBar.className = 'demo-bar';
+      demoBar.innerHTML = '<div class="container"><p>' + icon('info', 14) + I.t('demo_banner') + '</p></div>';
+      /* placed above the sticky header so it scrolls away naturally */
+      host.insertAdjacentElement('beforebegin', demoBar);
+    }
+  }
+
+  function updateLangBtns() {
+    document.querySelectorAll('[data-lang-toggle]').forEach(function (b) {
+      b.textContent = I.t('language_name');
+    });
+  }
+
+  function markActiveNav() {
+    var u = window.location;
+    document.querySelectorAll('[data-nav]').forEach(function (a) {
+      var l = NAV_LINKS.find(function (x) { return x.key === a.dataset.nav; });
+      a.classList.toggle('active', l ? l.match(u) : false);
+    });
+  }
+
+  function updateCounts() {
+    var c = Cart.count(), w = Wish.count();
+    document.querySelectorAll('[data-cart-count]').forEach(function (el) {
+      el.textContent = c > 99 ? '99+' : String(c);
+      el.hidden = c === 0;
+    });
+    document.querySelectorAll('[data-wish-count]').forEach(function (el) {
+      el.textContent = w > 9 ? '9+' : String(w);
+      el.hidden = w === 0;
+    });
+  }
+
+  function renderFooter() {
+    var host = document.getElementById('site-footer');
+    if (!host) return;
+    host.innerHTML =
+      '<div class="container footer-grid">' +
+      '<div class="foot-brand">' +
+      '<p class="foot-logo"><span class="brand-main">BLUSH</span><span class="brand-sub">BEAUTY</span></p>' +
+      '<p class="foot-about" data-foot-about></p>' +
+      '</div>' +
+      '<div class="foot-col">' +
+      '<h3 class="foot-title" data-i18n="ft_links"></h3>' +
+      '<a href="index.html" data-i18n="ft_home"></a>' +
+      '<a href="shop.html" data-i18n="ft_shop"></a>' +
+      '<a href="track-order.html" data-i18n="ft_track"></a>' +
+      '</div>' +
+      '<div class="foot-col" data-foot-care>' +
+      '<h3 class="foot-title" data-i18n="ft_care"></h3>' +
+      '</div>' +
+      '<div class="foot-col" data-foot-follow>' +
+      '<h3 class="foot-title" data-i18n="ft_follow"></h3>' +
+      '</div>' +
+      '</div>' +
+      '<div class="foot-bottom"><div class="container"><p data-foot-rights></p></div></div>';
+
+    fillFooter();
+    document.addEventListener('lang:change', fillFooter);
+
+    function fillFooter() {
+      I.apply(host);
+      DB.getSettings().then(function (s) {
+        var about = host.querySelector('[data-foot-about]');
+        about.textContent = (I.lang === 'ar'
+          ? (s.tagline_ar || s.tagline_en || '')
+          : (s.tagline_en || s.tagline_ar || '')) || I.t('ft_about_default');
+
+        var brandSlot = host.querySelector('.foot-logo');
+        var bname = I.lang === 'ar' ? (s.brand_name_ar || 'BLUSH') : (s.brand_name_en || 'BLUSH');
+        if (s.brand_name_en || s.brand_name_ar) {
+          brandSlot.innerHTML = '<span class="brand-main">' + esc(bname) + '</span>';
+        }
+
+        var care = host.querySelector('[data-foot-care]');
+        var careHtml = '<h3 class="foot-title">' + I.t('ft_care') + '</h3>';
+        if (s.contact_email) {
+          careHtml += '<a href="mailto:' + esc(s.contact_email) + '">' + esc(s.contact_email) + '</a>';
+        }
+        if (s.working_hours) {
+          careHtml += '<p class="foot-muted">' + esc(s.working_hours) + '</p>';
+        }
+        careHtml += '<p class="foot-muted">' + I.t('ft_cod_note') + '</p>';
+        care.innerHTML = careHtml;
+
+        var follow = host.querySelector('[data-foot-follow]');
+        var followHtml = '<h3 class="foot-title">' + I.t('ft_follow') + '</h3>';
+        if (s.whatsapp_number) {
+          var msg = I.lang === 'ar' ? (s.whatsapp_message_ar || s.whatsapp_message_en || '') : (s.whatsapp_message_en || s.whatsapp_message_ar || '');
+          var waUrl = 'https://wa.me/' + esc(s.whatsapp_number) + (msg ? '?text=' + encodeURIComponent(msg) : '');
+          followHtml += '<a href="' + waUrl + '" target="_blank" rel="noopener">' + icon('whatsapp', 16) + ' ' + I.t('ct_whatsapp') + '</a>';
+        } else {
+          followHtml += '<p class="foot-muted">' + I.t('ct_missing') + '</p>';
+        }
+        if (s.instagram_url) {
+          followHtml += '<a href="' + esc(s.instagram_url) + '" target="_blank" rel="noopener">' + icon('instagram', 16) + ' ' + I.t('ct_instagram') + '</a>';
+        }
+        follow.innerHTML = followHtml;
+
+        var rights = host.querySelector('[data-foot-rights]');
+        rights.textContent = I.t('ft_rights', { y: new Date().getFullYear() });
+      }).catch(function () {
+        var rights = host.querySelector('[data-foot-rights]');
+        if (rights) rights.textContent = I.t('ft_rights', { y: new Date().getFullYear() });
+        var care = host.querySelector('[data-foot-care]');
+        if (care && care.querySelectorAll('a, p').length <= 1) {
+          care.innerHTML = '<h3 class="foot-title">' + I.t('ft_care') + '</h3><p class="foot-muted">' + I.t('ft_cod_note') + '</p>';
+        }
+      });
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     Global delegated handlers
+  ---------------------------------------------------------------- */
+  function wireGlobal() {
+    document.addEventListener('click', function (e) {
+      var wishBtn = e.target.closest('[data-wish-id]');
+      if (wishBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        var id = wishBtn.dataset.wishId;
+        var added = Wish.toggle(id);
+        wishBtn.classList.toggle('active', added);
+        var svg = wishBtn.querySelector('svg');
+        if (svg) svg.outerHTML = icon(added ? 'heartFill' : 'heart', 18);
+        toast(added ? I.t('added_wish') : I.t('removed_wish'), added ? 'ok' : 'info');
+        document.dispatchEvent(new CustomEvent('wish:toggled', { detail: { id: id, added: added } }));
+        return;
+      }
+    });
+    document.addEventListener('cart:change', updateCounts);
+    document.addEventListener('wish:change', updateCounts);
+  }
+
+  /* ----------------------------------------------------------------
+     Boot
+  ---------------------------------------------------------------- */
+  function boot(opts) {
+    opts = opts || {};
+    renderHeader();
+    renderFooter();
+    wireGlobal();
+    updateCounts();
+    I.apply();
+    if (opts.rerender) {
+      document.addEventListener('lang:change', function () { opts.rerender(); });
+    }
+  }
+
+  window.UI = {
+    icon: icon,
+    esc: esc,
+    money: money,
+    toast: toast,
+    confirm: confirmDialog,
+    boot: boot,
+    Cart: Cart,
+    Wish: Wish,
+    productCard: productCard,
+    mediaHtml: mediaHtml,
+    phHtml: phHtml,
+    seedOf: seedOf,
+    stockLabel: stockLabel,
+    catLabel: catLabel,
+    qtyStepperHtml: qtyStepperHtml,
+    wireQtySteppers: wireQtySteppers
+  };
+})();

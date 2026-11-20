@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shop &mdash; Blush Beauty</title>
+  <meta name="description" content="Browse makeup and perfumes at Blush Beauty — filter by category, price and availability.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23F1E4E2'/%3E%3Ctext x='32' y='44' font-family='Georgia,serif' font-size='36' fill='%232C2823' text-anchor='middle'%3EB%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Alexandria:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header id="site-header" class="site-header"></header>
+
+  <main id="main">
+    <div class="container page-head">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="index.html" data-i18n="pdp_breadcrumb_home"></a>
+        <span class="sep">/</span>
+        <span id="crumb-current" data-i18n="shop_title"></span>
+      </nav>
+      <h1 class="display-1" data-i18n="shop_title"></h1>
+    </div>
+
+    <div class="container section-tight shop-page">
+      <div class="shop-layout">
+        <!-- Filters: mobile toggle + sheet; desktop sidebar -->
+        <aside class="shop-side">
+          <button type="button" class="btn btn-ghost filters-toggle" id="filters-open">
+            <span data-i18n="shop_filters"></span>
+            <span data-filters-count class="count-inline" hidden></span>
+          </button>
+          <div class="filters-desktop" id="filters-desktop"></div>
+        </aside>
+
+        <div class="shop-content">
+          <div class="shop-toolbar">
+            <button type="button" class="btn btn-ghost btn-sm filters-toggle2" id="filters-open-2">
+              <span data-i18n="shop_filters"></span>
+            </button>
+            <span class="result-count" id="result-count"></span>
+            <div class="sort-wrap">
+              <label for="sort-select" data-i18n="shop_sort"></label>
+              <select class="input" id="sort-select">
+                <option value="newest" data-i18n="sort_newest"></option>
+                <option value="best" data-i18n="sort_best"></option>
+                <option value="price_asc" data-i18n="sort_price_asc"></option>
+                <option value="price_desc" data-i18n="sort_price_desc"></option>
+              </select>
+            </div>
+          </div>
+
+          <div class="products-grid" id="products-grid">
+            <div class="skel skel-card"></div><div class="skel skel-card"></div>
+            <div class="skel skel-card"></div><div class="skel skel-card"></div>
+          </div>
+
+          <div class="empty-state" id="shop-empty" hidden>
+            <div class="glyph" data-empty-glyph></div>
+            <h2 data-i18n="shop_empty_title"></h2>
+            <p data-i18n="shop_empty_text"></p>
+            <button type="button" class="btn btn-outline" id="clear-filters-2" data-i18n="shop_clear"></button>
+          </div>
+
+          <div class="load-more-wrap" id="load-more-wrap" hidden>
+            <button type="button" class="btn btn-ghost" id="load-more" data-i18n="ad_load_more"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer id="site-footer" class="site-footer"></footer>
+  <div id="toast-root"></div>
+
+  <script src="supabase-js.min.js"></script>
+  <script src="config.js"></script>
+  <script src="translations.js"></script>
+  <script src="demo-catalog.js"></script>
+  <script src="supabase-client.js"></script>
+  <script src="main.js"></script>
+  <script src="shop.js"></script>
+</body>
+</html>

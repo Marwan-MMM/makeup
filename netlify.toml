@@ -1,0 +1,95 @@
+# ============================================================
+# Blush Beauty — netlify.toml
+#
+# DEPLOYMENT SAFETY: the build command copies ONLY root-level
+# files into an out-of-tree publish directory, so every file
+# whose name starts with "NO PUBLISH" (docs, SQL, guides) and
+# the supabase/ functions folder are NEVER deployed publicly.
+# The dist/ folder exists only on Netlify build servers; your
+# local project folder stays flat and untouched.
+# ============================================================
+
+[build]
+  command = 'rm -rf dist && mkdir -p dist && find . -maxdepth 1 -type f ! -name ".*" ! -name "dist" ! -name "NO PUBLISH*" ! -name "netlify.toml" -exec cp -t dist {} +'
+  publish = "dist"
+
+# ---------------- Security headers ----------------
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self';
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src https://fonts.gstatic.com;
+      img-src 'self' data: https://*.supabase.co;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co;
+      frame-ancestors 'none';
+      base-uri 'self';
+      form-action 'self';
+      object-src 'none';
+    """
+
+# Cache static assets aggressively; HTML always revalidates.
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# ---------------- Friendly routes ----------------
+[[redirects]]
+  from = "/shop"
+  to = "/shop.html"
+  status = 200
+
+[[redirects]]
+  from = "/cart"
+  to = "/cart.html"
+  status = 200
+
+[[redirects]]
+  from = "/checkout"
+  to = "/checkout.html"
+  status = 200
+
+[[redirects]]
+  from = "/track"
+  to = "/track-order.html"
+  status = 200
+
+[[redirects]]
+  from = "/track-order"
+  to = "/track-order.html"
+  status = 200
+
+[[redirects]]
+  from = "/wishlist"
+  to = "/wishlist.html"
+  status = 200
+
+[[redirects]]
+  from = "/contact"
+  to = "/contact.html"
+  status = 200
+
+# Must be the LAST redirect: everything unknown -> 404 page.
+[[redirects]]
+  from = "/*"
+  to = "/404.html"
+  status = 404

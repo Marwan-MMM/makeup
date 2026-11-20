@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout &mdash; Blush Beauty</title>
+  <meta name="description" content="Complete your order at Blush Beauty — cash on delivery or card, delivered across Egypt.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23F1E4E2'/%3E%3Ctext x='32' y='44' font-family='Georgia,serif' font-size='36' fill='%232C2823' text-anchor='middle'%3EB%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Alexandria:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header id="site-header" class="site-header"></header>
+
+  <main id="main">
+    <div class="container page-head">
+      <h1 class="display-1" data-i18n="co_title"></h1>
+    </div>
+
+    <div class="container section-tight" id="checkout-root">
+      <div class="checkout-layout">
+        <form id="checkout-form" novalidate>
+          <!-- Contact -->
+          <div class="co-block">
+            <h2 data-i18n="co_contact"></h2>
+            <div class="form-grid cols-2">
+              <div class="field" data-field="full_name">
+                <label for="f-name" data-i18n="co_fullname"></label>
+                <input class="input" id="f-name" type="text" autocomplete="name" maxlength="100">
+                <p class="field-error" data-err="full_name"></p>
+              </div>
+              <div class="field" data-field="phone">
+                <label for="f-phone" data-i18n="co_phone"></label>
+                <input class="input is-ltr" id="f-phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="14" placeholder="01xxxxxxxxx">
+                <p class="hint" data-i18n="co_phone_hint"></p>
+                <p class="field-error" data-err="phone"></p>
+              </div>
+            </div>
+            <div class="field" data-field="email">
+              <label for="f-email"><span data-i18n="co_email"></span> <span class="opt" data-i18n="co_email_opt"></span></label>
+              <input class="input is-ltr" id="f-email" type="email" autocomplete="email" maxlength="120">
+              <p class="field-error" data-err="email"></p>
+            </div>
+          </div>
+
+          <!-- Delivery -->
+          <div class="co-block">
+            <h2 data-i18n="co_delivery"></h2>
+            <div class="form-grid cols-2">
+              <div class="field" data-field="governorate">
+                <label for="f-gov" data-i18n="co_gov"></label>
+                <select class="input" id="f-gov">
+                  <option value="" data-i18n="co_gov_ph"></option>
+                </select>
+                <p class="field-error" data-err="governorate"></p>
+              </div>
+              <div class="field" data-field="city">
+                <label for="f-city" data-i18n="co_city"></label>
+                <input class="input" id="f-city" type="text" maxlength="80">
+                <p class="field-error" data-err="city"></p>
+              </div>
+            </div>
+            <div class="field" data-field="address">
+              <label for="f-address" data-i18n="co_address"></label>
+              <textarea class="input" id="f-address" maxlength="300" data-i18n-ph="co_address_ph"></textarea>
+              <p class="field-error" data-err="address"></p>
+            </div>
+            <div class="field">
+              <label for="f-instructions"><span data-i18n="co_instructions"></span> <span class="opt" data-i18n="co_instructions_opt"></span></label>
+              <input class="input" id="f-instructions" type="text" maxlength="200" data-i18n-ph="co_instructions_ph">
+            </div>
+          </div>
+
+          <!-- Payment -->
+          <div class="co-block">
+            <h2 data-i18n="co_payment"></h2>
+            <div class="pay-options" id="pay-options">
+              <div class="pay-option">
+                <input type="radio" name="payment" id="pay-visa" value="visa" checked>
+                <label for="pay-visa">
+                  <span class="pay-radio"></span>
+                  <span><span class="pay-name">Visa</span>
+                  <span class="pay-desc" data-i18n="pay_card_desc"></span>
+                  <span class="pay-tags"><span class="pay-tag">Visa</span></span>
+                  </span>
+                </label>
+              </div>
+              <div class="pay-option">
+                <input type="radio" name="payment" id="pay-mastercard" value="mastercard">
+                <label for="pay-mastercard">
+                  <span class="pay-radio"></span>
+                  <span><span class="pay-name">Mastercard</span>
+                  <span class="pay-desc" data-i18n="pay_card_desc"></span>
+                  <span class="pay-tags"><span class="pay-tag">Mastercard</span></span>
+                  </span>
+                </label>
+              </div>
+              <div class="pay-option">
+                <input type="radio" name="payment" id="pay-meeza" value="meeza">
+                <label for="pay-meeza">
+                  <span class="pay-radio"></span>
+                  <span><span class="pay-name">Meeza</span>
+                  <span class="pay-desc" data-i18n="pay_card_desc"></span>
+                  <span class="pay-tags"><span class="pay-tag">Meeza</span></span>
+                  </span>
+                </label>
+              </div>
+              <div class="pay-option">
+                <input type="radio" name="payment" id="pay-cod" value="cod">
+                <label for="pay-cod">
+                  <span class="pay-radio"></span>
+                  <span><span class="pay-name" data-i18n="pay_cod"></span>
+                  <span class="pay-desc" data-i18n="pay_cod_desc"></span>
+                  <span class="pay-tags"><span class="pay-tag" data-i18n="pay_cod"></span></span>
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div class="sim-notice" id="sim-notice">
+              <span id="sim-notice-icon"></span>
+              <span data-i18n="pay_sim_notice"></span>
+            </div>
+            <p class="hint mt-1" id="card-flow-note" data-i18n="co_card_note"></p>
+          </div>
+        </form>
+
+        <!-- Summary -->
+        <aside class="summary-card" id="co-summary">
+          <h2 data-i18n="co_summary"></h2>
+          <div class="summary-items" id="co-items"></div>
+          <div class="summary-rows">
+            <div class="row"><span data-i18n="co_subtotal"></span><b id="co-subtotal"></b></div>
+            <div class="row"><span data-i18n="co_shipping"></span><b id="co-shipping"></b></div>
+            <div class="row total"><span data-i18n="co_total"></span><b id="co-total"></b></div>
+          </div>
+          <button type="button" class="btn btn-primary btn-block" id="place-order" data-i18n="co_place"></button>
+          <p class="summary-note" id="co-items-count"></p>
+        </aside>
+      </div>
+
+      <div class="empty-state mt-4" id="co-empty" hidden>
+        <div class="glyph" id="co-empty-glyph"></div>
+        <h2 data-i18n="cart_empty_title"></h2>
+        <p data-i18n="co_empty_cart"></p>
+        <a class="btn btn-outline" href="shop.html" data-i18n="continue_shopping"></a>
+      </div>
+    </div>
+  </main>
+
+  <footer id="site-footer" class="site-footer"></footer>
+  <div id="toast-root"></div>
+
+  <script src="supabase-js.min.js"></script>
+  <script src="config.js"></script>
+  <script src="translations.js"></script>
+  <script src="demo-catalog.js"></script>
+  <script src="supabase-client.js"></script>
+  <script src="main.js"></script>
+  <script src="checkout.js"></script>
+</body>
+</html>
