@@ -74,9 +74,21 @@
   function localToIso(v) { return v ? new Date(v).toISOString() : null; }
 
   function thumbHtml(row) {
-    var url = row.images && row.images.length ? row.images[0] : '';
+    /* Real product photo instead of initials: the products query now
+       embeds product_images; pick the lowest admin-defined position.
+       Object rows come from Supabase, plain URL strings from the demo
+       catalog. Neutral initials placeholder only when there is no
+       image at all. */
+    var url = '';
+    if (row.images && row.images.length) {
+      var first = row.images.slice().sort(function (a, b) {
+        if (typeof a === 'string' || typeof b === 'string') return 0;
+        return (Number(a && a.position) || 0) - (Number(b && b.position) || 0);
+      })[0];
+      url = typeof first === 'string' ? first : ((first && first.url) || '');
+    }
     return '<span class="adm-thumb">' + (url
-      ? '<img src="' + esc(url) + '" alt="">'
+      ? '<img src="' + esc(url) + '" alt="" loading="lazy">'
       : UI.phHtml(prodName(row), UI.seedOf(row))) + '</span>';
   }
 
@@ -141,7 +153,7 @@
     }
     if (cache.products && !force) return Promise.resolve(cache.products);
     return sb.from('products')
-      .select('*, cat:categories!products_category_id_fkey(id,slug,name_en,name_ar), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)')
+      .select('*, images:product_images(id,product_id,url,alt,position), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)')
       .order('created_at', { ascending: false })
       .limit(1000)
       .then(function (res) {
@@ -1162,7 +1174,8 @@
               var payload = {
                 shade_number: sh.shade_number,
                 shade_name_en: sh.shade_name_en.trim(),
-                shade_name_ar: sh.shade_name_ar.trim(),
+                /* English fallback when the Arabic shade name is empty */
+                shade_name_ar: sh.shade_name_ar.trim() || sh.shade_name_en.trim(),
                 stock_quantity: sh.stock_quantity,
                 is_active: sh.is_active,
                 display_order: idx
@@ -1192,8 +1205,13 @@
                     return sb.from('product_shade_images').insert({
                       shade_id: sh.id, url: url,
                       alt: sh.shade_name_en || '', position: sh.images.length + i
-                    }).then(function (r2) {
+                    }).select('id').single().then(function (r2) {
                       if (r2.error) throw r2.error;
+                      /* .select() is REQUIRED: without it Supabase returns
+                         data:null even on success, and reading r2.data.id
+                         threw "Cannot read properties of null (reading
+                         'id')" — after the product row was already saved. */
+                      if (!r2.data || !r2.data.id) throw new Error('shade image row not returned');
                       sh.images.push({ id: r2.data.id, shade_id: sh.id, url: url, position: sh.images.length });
                     });
                   });
@@ -1206,7 +1224,11 @@
 
       function validate() {
         var errs = [];
-        if (!q('#f-name-en', m.body).value.trim() || !q('#f-name-ar', m.body).value.trim()) errs.push(I.t('ad_err_names'));
+        /* Arabic fields are OPTIONAL: an empty Arabic name falls back to
+           the English name at save time (products.name_ar is NOT NULL in
+           the database, and the storefront already prefers the Arabic
+           value and falls back to English when displaying). */
+        if (!q('#f-name-en', m.body).value.trim()) errs.push(I.t('ad_err_names'));
         if (!q('#f-sku', m.body).value.trim()) errs.push(I.t('ad_err_sku'));
         var price = parseFloat(q('#f-price', m.body).value);
         if (isNaN(price) || price < 0) errs.push(I.t('ad_err_price'));
@@ -1244,7 +1266,8 @@
         var payload = {
           sku: q('#f-sku', m.body).value.trim(),
           name_en: q('#f-name-en', m.body).value.trim(),
-          name_ar: q('#f-name-ar', m.body).value.trim(),
+          /* English fallback when the Arabic name is left empty */
+          name_ar: q('#f-name-ar', m.body).value.trim() || q('#f-name-en', m.body).value.trim(),
           description_en: q('#f-desc-en', m.body).value.trim(),
           description_ar: q('#f-desc-ar', m.body).value.trim(),
           category_id: q('#f-cat', m.body).value,
@@ -1261,13 +1284,24 @@
           is_bestseller: q('#f-best', m.body).checked
         };
 
-        var saveRow = isNew
+        /* Set once the product row itself is in the database. Every
+           later Save UPDATES that row — a retry after a failed image or
+           shade step can never create a duplicate product. */
+        var savedProductId = null;
+
+        var saveRow = (isNew && !savedProductId)
           ? sb.from('products').insert(payload).select().single()
-          : sb.from('products').update(payload).eq('id', p.id).select().single();
+          : sb.from('products').update(payload).eq('id', savedProductId || p.id).select().single();
 
         saveRow.then(function (res) {
           if (res.error) throw res.error;
-          var saved = res.data;
+          /* .single() returns the row object; normalise defensively so a
+             non-standard response shape can never read .id off an array */
+          var saved = Array.isArray(res.data) ? res.data[0] : res.data;
+          /* never trust the response shape: the row must come back with
+             an id before images/shades are attached to it */
+          if (!saved || !saved.id) throw new Error(I.t('ad_err_row_missing'));
+          savedProductId = saved.id;
           /* upload staged images then link them */
           var folder = 'products/' + (saved.sku || 'misc').toLowerCase().replace(/[^a-z0-9-_]/g, '-');
           return staged.reduce(function (chain, file, i) {
@@ -1296,6 +1330,14 @@
           btn.textContent = I.t('ad_save');
           var msg = err && err.message ? err.message : I.t('error_generic');
           if (msg.indexOf('duplicate key') !== -1) msg = I.t('ad_err_sku') + ' (SKU must be unique)';
+          /* Partial save: the product row exists but a follow-up step
+             (images / shades) failed. Report the ACTUAL failure and make
+             the next Save update the same row instead of duplicating. */
+          if (savedProductId) {
+            msg = I.t('ad_saved_partial', { msg: msg });
+            isNew = false;
+            p = { id: savedProductId, sku: payload.sku };
+          }
           UI.toast(msg, 'error');
         });
       }

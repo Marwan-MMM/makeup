@@ -120,7 +120,7 @@
      setting is absent (column not migrated yet) the defaults apply. */
   var RIBBON_DEFAULT_TEXT = 'Glow, girl, glow! \u2728';
   var RIBBON_DEFAULT_COLOR = '#F72585';
-  var RIBBON_REPEATS = 8; /* per group; keeps one group wider than any viewport */
+  var RIBBON_REPEATS = 20; /* per group; keeps one group wider than any viewport */
 
   function renderRibbon(s) {
     s = s || {};

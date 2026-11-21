@@ -43,8 +43,8 @@
      PostgREST schema cache cannot resolve the relationship yet, the
      FALLBACK_SELECT (no embed) keeps every product query working
      instead of failing whole pages. */
-  var PRODUCT_SELECT = '*, images:product_images(id,product_id,url,alt,position), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
-  var FALLBACK_SELECT = '*, cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
+  var PRODUCT_SELECT = '*, images:product_images(id,product_id,url,alt,position), shades:product_shades(id,product_id,shade_number,shade_name_en,shade_name_ar,stock_quantity,is_active,display_order), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
+  var FALLBACK_SELECT = '*, shades:product_shades(id,product_id,shade_number,shade_name_en,shade_name_ar,stock_quantity,is_active,display_order), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
   var imagesEmbedBroken = false;
   function isEmbedError(err) {
     var m = String((err && err.message) || '');
@@ -122,6 +122,23 @@
     }).map(function (im) {
       return typeof im === 'string' ? im : (im && im.url) || '';
     }).filter(Boolean);
+    /* Embedded product_shades rows (product cards show shade
+       quick-picks): keep only active shades in admin display order.
+       The PDP keeps using getShades(), which also loads each shade's
+       own gallery. */
+    var shades = (row.shades || []).filter(function (s) {
+      return s && s.is_active !== false;
+    }).sort(function (a, b) {
+      return (Number(a && a.display_order) || 0) - (Number(b && b.display_order) || 0);
+    }).map(function (s) {
+      return {
+        id: s.id,
+        number: Number(s.shade_number) || 0,
+        nameEn: s.shade_name_en || '',
+        nameAr: s.shade_name_ar || '',
+        stock: Number(s.stock_quantity) || 0
+      };
+    });
     return {
       id: row.id,
       sku: row.sku,
@@ -140,6 +157,7 @@
       sales: Number(row.sales_count) || 0,
       createdAt: row.created_at,
       images: images,
+      shades: shades,
       categoryId: row.category_id,
       subcategoryId: row.subcategory_id,
       catSlug: row.cat && row.cat.slug,
@@ -235,6 +253,9 @@
       var copy = Object.assign({}, p);
       copy.cat = byId[p.category_id] || null;
       copy.sub = byId[p.subcategory_id] || null;
+      /* Demo shade rows share the database column names, so normalise()
+         maps them identically and demo cards show shade quick-picks. */
+      copy.shades = DEMO.findShades(p.id) || [];
       return copy;
     });
   }

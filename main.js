@@ -409,6 +409,27 @@
     if (p.bestseller) badges += '<span class="badge badge-best">' + I.t('bestseller_badge') + '</span>';
     if (p.stock <= 0) badges += '<span class="badge badge-out">' + I.t('sold_out_badge') + '</span>';
 
+    /* Shade quick-picks: active shades in admin display order (already
+       mapped by the data layer). Each chip deep-links to the product
+       page with that shade preselected (?shade=N) — the PDP stays the
+       authoritative selection surface with per-shade stock and gallery.
+       Out-of-stock shades render dimmed but still navigate. Products
+       without shades keep their exact previous appearance. */
+    var shadesHtml = '';
+    if (p.shades && p.shades.length) {
+      shadesHtml = '<div class="card-shades" aria-label="' + esc(I.t('shades_title')) + '">' +
+        p.shades.map(function (s) {
+          var label = I.t('shade_numbered', { n: s.number });
+          var nm = I18N.lang === 'ar' ? (s.nameAr || s.nameEn) : (s.nameEn || s.nameAr);
+          return '<a class="shade-chip' + (s.stock <= 0 ? ' is-out' : '') + '" href="product.html?id=' +
+            encodeURIComponent(p.id) + '&shade=' + encodeURIComponent(s.number) + '"' +
+            ' title="' + esc(nm ? (label + (nm ? ' \u2014 ' + nm : '')) : label) + '"' +
+            ' aria-label="' + esc(nm ? (label + (nm ? ' \u2014 ' + nm : '')) : label) + '">' +
+            '<span class="num">' + esc(s.number) + '</span></a>';
+        }).join('') +
+        '</div>';
+    }
+
     return '' +
       '<article class="product-card" data-id="' + esc(p.id) + '">' +
       '<div class="card-media">' +
@@ -428,6 +449,7 @@
       '<span class="price-now">' + money(p.finalPrice) + '</span>' +
       (p.onSale ? '<span class="price-old">' + money(p.price) + '</span>' : '') +
       '</div>' +
+      shadesHtml +
       '<p class="card-stock">' + stockLabel(p) + '</p>' +
       '</div>' +
       '</article>';

@@ -153,16 +153,24 @@
     var root = document.getElementById('pdp-root');
     var rootSec = document.getElementById('pdp-root');
 
-    /* breadcrumb tail */
+    /* breadcrumb tail — REPLACED on every draw: drawPdp re-renders on
+       each shade selection, and the previous insertAdjacentHTML here
+       APPENDED "Category / Product" again for every switch, so three
+       shade clicks produced three duplicated breadcrumb segments. The
+       static Home/Shop anchors stay untouched; only this tail span is
+       rewritten, in both LTR and RTL. */
     var bc = document.getElementById('pdp-breadcrumb');
-    var catName = I.lang === 'ar' ? (p.catNameAr || p.catNameEn || '') : (p.catNameEn || p.catNameAr || '');
-    if (catName) {
-      bc.insertAdjacentHTML('beforeend',
-        '<span class="sep">/</span><a href="shop.html?cat=' + UI.esc(p.catSlug) + '">' + UI.esc(catName) + '</a>' +
-        '<span class="sep">/</span><span>' + UI.esc(DB.locName(p)) + '</span>');
-    } else {
-      bc.insertAdjacentHTML('beforeend', '<span class="sep">/</span><span>' + UI.esc(DB.locName(p)) + '</span>');
+    var bcTail = document.getElementById('pdp-breadcrumb-tail');
+    if (!bcTail) {
+      bcTail = document.createElement('span');
+      bcTail.id = 'pdp-breadcrumb-tail';
+      bc.appendChild(bcTail);
     }
+    var catName = I.lang === 'ar' ? (p.catNameAr || p.catNameEn || '') : (p.catNameEn || p.catNameAr || '');
+    bcTail.innerHTML = (catName
+      ? '<span class="sep">/</span><a href="shop.html?cat=' + UI.esc(p.catSlug) + '">' + UI.esc(catName) + '</a>'
+      : '') +
+      '<span class="sep">/</span><span>' + UI.esc(DB.locName(p)) + '</span>';
 
     var images = galleryImages();
     var out = hasShades() ? (!shade || shade.stock <= 0) : (p.stock <= 0);
@@ -183,7 +191,6 @@
       '<div class="pdp-info">' +
       '<p class="pdp-cat">' + UI.esc(UI.catLabel(p)) + '</p>' +
       '<h1 class="pdp-name">' + UI.esc(DB.locName(p)) + '</h1>' +
-      '<p class="pdp-sku">' + I.t('sku') + ' <span class="num">' + UI.esc(p.sku) + '</span></p>' +
       '<div class="pdp-prices">' +
       '<span class="price-now">' + UI.money(p.finalPrice) + '</span>' +
       (p.onSale ? '<span class="price-old">' + UI.money(p.price) + '</span>' +
@@ -203,7 +210,6 @@
       '</div>' +
       '<div class="pdp-desc">' + UI.esc(DB.locDesc(p)) + '</div>' +
       '<div class="pdp-attrs">' +
-      '<div class="row"><b>' + I.t('sku') + '</b><span class="num">' + UI.esc(p.sku) + '</span></div>' +
       '<div class="row"><b>' + I.t('pdp_stock') + '</b><span>' + stockLine() + '</span></div>' +
       (shade ? '<div class="row"><b>' + I.t('shade_label') + '</b><span>' + UI.esc(shadeLineLabel(shade)) + '</span></div>' : '') +
       '</div>' +
