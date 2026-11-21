@@ -39,20 +39,48 @@
     }
     document.getElementById('co-empty').hidden = true;
 
-    DB.getProducts({ ids: items.map(function (x) { return x.id; }), limit: 100, noLimit: true })
-      .then(function (res) {
-        rows = items.map(function (it) {
-          var p = res.items.find(function (x) { return x.id === it.id; });
-          return p ? { p: p, qty: Math.min(it.qty, p.stock) } : null;
-        }).filter(Boolean);
-        if (!rows.length) {
-          document.getElementById('co-empty').hidden = false;
-          document.getElementById('checkout-root').querySelector('.checkout-layout').style.display = 'none';
-          return;
+    var shadedIds = [];
+    items.forEach(function (it) { if (it.shade && shadedIds.indexOf(it.id) === -1) shadedIds.push(it.id); });
+
+    Promise.all([
+      DB.getProducts({ ids: items.map(function (x) { return x.id; }), limit: 100, noLimit: true }),
+      shadedIds.length
+        ? Promise.all(shadedIds.map(function (pid) {
+            return DB.getShades(pid).catch(function () { return []; });
+          }))
+        : Promise.resolve([])
+    ]).then(function (res) {
+      var prods = res[0].items;
+      var shadesByProduct = {};
+      res[1].forEach(function (list) {
+        if (list.length) shadesByProduct[list[0].productId] = list;
+      });
+      rows = items.map(function (it) {
+        var p = prods.find(function (x) { return x.id === it.id; });
+        if (!p) return null;
+        var shadeRow = null;
+        if (it.shade && shadesByProduct[p.id]) {
+          shadeRow = shadesByProduct[p.id].find(function (s) { return s.id === it.shade.id; }) || null;
+          if (!shadeRow) return null;
         }
-        drawSummary();
-      })
+        var cap = shadeRow ? shadeRow.stock : p.stock;
+        return { p: p, shade: it.shade || null, shadeRow: shadeRow, qty: Math.min(it.qty, cap) };
+      }).filter(Boolean);
+      if (!rows.length) {
+        document.getElementById('co-empty').hidden = false;
+        document.getElementById('checkout-root').querySelector('.checkout-layout').style.display = 'none';
+        return;
+      }
+      drawSummary();
+    })
       .catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+  }
+
+  function shadeLabelOf(r) {
+    var s = r.shadeRow;
+    if (!s) return '';
+    var name = I.lang === 'ar' ? (s.nameAr || s.nameEn) : (s.nameEn || s.nameAr);
+    return I.t('shade_numbered', { n: s.number }) + (name ? ' \u2014 ' + name : '');
   }
 
   function drawSummary() {
@@ -60,9 +88,16 @@
     var subtotal = 0;
     host.innerHTML = rows.map(function (r) {
       subtotal += r.p.finalPrice * r.qty;
+      var img = (r.shadeRow && r.shadeRow.images.length) ? r.shadeRow.images[0].url
+        : (r.shade && r.shade.img ? r.shade.img : '');
+      var thumb = img
+        ? '<img src="' + UI.esc(img) + '" alt="" loading="lazy">'
+        : UI.mediaHtml(r.p);
       return '<div class="summary-item">' +
-        '<span class="thumb">' + UI.mediaHtml(r.p) + '</span>' +
-        '<span class="nm">' + UI.esc(DB.locName(r.p)) + ' <span class="q num">\u00d7 ' + r.qty + '</span></span>' +
+        '<span class="thumb">' + thumb + '</span>' +
+        '<span class="nm">' + UI.esc(DB.locName(r.p)) + ' <span class="q num">\u00d7 ' + r.qty + '</span>' +
+        (r.shadeRow ? '<span class="summary-shade">' + UI.esc(shadeLabelOf(r)) + '</span>' : '') +
+        '</span>' +
         '<span class="pr">' + UI.money(Math.round(r.p.finalPrice * r.qty * 100) / 100) + '</span>' +
         '</div>';
     }).join('');
@@ -130,7 +165,11 @@
 
     var method = document.querySelector('input[name="payment"]:checked').value;
     var payload = {
-      items: rows.map(function (r) { return { product_id: r.p.id, quantity: r.qty }; }),
+      items: rows.map(function (r) {
+        var line = { product_id: r.p.id, quantity: r.qty };
+        if (r.shadeRow) line.shade_id = r.shadeRow.id;
+        return line;
+      }),
       customer: {
         full_name: document.getElementById('f-name').value.trim(),
         phone: document.getElementById('f-phone').value.trim(),

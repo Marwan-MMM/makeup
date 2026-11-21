@@ -22,6 +22,7 @@
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     x: '<path d="M18 6 6 18M6 6l12 12"/>',
     chevDown: '<path d="m6 9 6 6 6-6"/>',
+    chevUp: '<path d="m18 15-6-6-6 6"/>',
     chevRight: '<path d="m9 18 6-6-6-6"/>',
     chevLeft: '<path d="m15 18-6-6 6-6"/>',
     arrowRight: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
@@ -56,7 +57,9 @@
     refresh: '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
     chart: '<path d="M3 3v18h18"/><path d="M7 15v-4M12 15V7M17 15v-7"/>',
     home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1Z"/>',
-    camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3"/>'
+    camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3"/>',
+    share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/>',
+    palette: '<path d="M12 22a10 10 0 1 1 10-10c0 2.2-1.8 3-3.5 3H17a3 3 0 0 0-3 3c0 1.5.8 2 .8 3 0 1.2-1 2-2.8 2Z"/><circle cx="7.5" cy="11.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="10.5" cy="7.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="7.5" r="1.1" fill="currentColor" stroke="none"/>'
   };
 
   function icon(name, size, cls) {
@@ -134,6 +137,131 @@
   }
 
   /* ----------------------------------------------------------------
+     Share product
+     Native Web Share API where supported (title + text + URL, and
+     the product image as a file when the target allows it); a
+     copy-link + WhatsApp dialog elsewhere. No registration, no
+     fake sharing.
+  ---------------------------------------------------------------- */
+  var shareIndex = {}; /* id -> last rendered product snapshot */
+
+  function registerShareProduct(p) {
+    if (p && p.id) shareIndex[p.id] = p;
+  }
+
+  function productUrl(p) {
+    var here = window.location;
+    /* On the PDP itself, share the exact current URL so any extra
+       parameters (e.g. a selected shade) are preserved. */
+    if (here.pathname.split('/').pop() === 'product.html' &&
+        new URLSearchParams(here.search).get('id') === String(p.id)) {
+      return here.href;
+    }
+    return new URL('product.html?id=' + encodeURIComponent(p.id), here.href).href;
+  }
+
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    if (!ok) throw new Error('copy failed');
+  }
+
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () { legacyCopy(text); });
+    }
+    return new Promise(function (resolve, reject) {
+      try { legacyCopy(text); resolve(); } catch (e) { reject(e); }
+    });
+  }
+
+  function shareDialog(p, url) {
+    /* never stack a second share dialog */
+    var stale = document.querySelectorAll('.modal-backdrop[data-share-dialog]');
+    stale.forEach(function (el) { el.remove(); });
+    var back = document.createElement('div');
+    back.className = 'modal-backdrop';
+    back.setAttribute('data-share-dialog', '');
+    back.innerHTML =
+      '<div class="modal" role="dialog" aria-modal="true">' +
+      '<h3 class="modal-title">' + esc(I.t('share_title')) + '</h3>' +
+      '<p class="modal-text">' + esc(DB.locName(p)) + '</p>' +
+      '<div class="modal-actions">' +
+      '<button type="button" class="btn btn-ghost" data-share-wa>' + icon('whatsapp', 16) + I.t('share_wa') + '</button>' +
+      '<button type="button" class="btn btn-primary" data-share-copy>' + icon('copy', 16) + I.t('share_copy') + '</button>' +
+      '</div></div>';
+    document.body.appendChild(back);
+    document.body.classList.add('no-scroll');
+    function close() {
+      back.remove();
+      document.body.classList.remove('no-scroll');
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    back.addEventListener('click', function (e) {
+      if (e.target === back) { close(); return; }
+      var wa = e.target.closest('[data-share-wa]');
+      var cp = e.target.closest('[data-share-copy]');
+      if (wa) {
+        close();
+        var text = encodeURIComponent(DB.locName(p) + ' \u2014 ' + url);
+        window.open('https://wa.me/?text=' + text, '_blank', 'noopener');
+      } else if (cp) {
+        copyToClipboard(url).then(function () {
+          close();
+          toast(I.t('share_copied'), 'ok');
+        }).catch(function () {
+          toast(I.t('share_failed'), 'error');
+        });
+      }
+    });
+    document.addEventListener('keydown', onKey);
+    setTimeout(function () { back.querySelector('[data-share-copy]').focus(); }, 30);
+  }
+
+  function shareProduct(p) {
+    if (!p) return;
+    registerShareProduct(p);
+    var name = DB.locName(p);
+    var url = productUrl(p);
+    var img = p.images && p.images[0] ? String(p.images[0]) : '';
+
+    if (!navigator.share) { shareDialog(p, url); return; }
+
+    /* Try to attach the product image where the share target
+       supports files; fall back to text + URL. */
+    var fetchFile = (img && /^https?:/i.test(img) && typeof navigator.canShare === 'function')
+      ? fetch(img, { mode: 'cors' })
+        .then(function (r) { return r.ok ? r.blob() : null; })
+        .then(function (b) {
+          if (!b || !/^image\//i.test(b.type)) return null;
+          var f = new File([b], 'product.' + (String(b.type).split('/')[1] || 'jpg'), { type: b.type });
+          return navigator.canShare({ files: [f] }) ? [f] : null;
+        })
+        .catch(function () { return null; })
+      : Promise.resolve(null);
+
+    fetchFile.then(function (files) {
+      var data = { title: name, text: name, url: url };
+      if (files && files.length) data.files = files;
+      return navigator.share(data).catch(function (err) {
+        if (err && err.name === 'AbortError') return; /* user cancelled */
+        return navigator.share({ title: name, text: name, url: url });
+      });
+    }).catch(function () {
+      shareDialog(p, url);
+    });
+  }
+
+  /* ----------------------------------------------------------------
      Cart & wishlist stores (localStorage, guests only)
   ---------------------------------------------------------------- */
   var CART_KEY = 'blush_cart_v1';
@@ -149,35 +277,50 @@
     try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ }
   }
 
+  /* Cart items carry { id, shade, qty }: the identity of a line is the
+     product id PLUS the selected shade id (null when the product has no
+     shades), so the same product in two shades is two separate lines
+     while the same product+shade merges into one. Entries written by
+     older versions have no `shade` field and keep working unchanged. */
   var Cart = {
     items: function () { return readKey(CART_KEY); },
     count: function () {
       return readKey(CART_KEY).reduce(function (s, i) { return s + (Number(i.qty) || 0); }, 0);
     },
-    qtyOf: function (id) {
-      var f = readKey(CART_KEY).find(function (x) { return x.id === id; });
+    /* Shade identity is the shade ID string, whether the caller passes
+       the full shade snapshot object (product page) or the raw id
+       (cart/checkout pages). */
+    sameLine: function (item, id, shade) {
+      function sid(s) {
+        if (!s) return null;
+        return typeof s === 'object' ? (s.id || null) : s;
+      }
+      return item.id === id && sid(item.shade) === sid(shade);
+    },
+    qtyOf: function (id, shade) {
+      var f = readKey(CART_KEY).find(function (x) { return Cart.sameLine(x, id, shade); });
       return f ? f.qty : 0;
     },
-    add: function (id, qty) {
+    add: function (id, qty, shade) {
       qty = Math.max(1, Math.min(99, Number(qty) || 1));
       var arr = readKey(CART_KEY);
-      var f = arr.find(function (x) { return x.id === id; });
+      var f = arr.find(function (x) { return Cart.sameLine(x, id, shade); });
       if (f) f.qty = Math.min(99, f.qty + qty);
-      else arr.push({ id: id, qty: qty });
+      else arr.push({ id: id, shade: shade || null, qty: qty });
       writeKey(CART_KEY, arr);
       storeChanged('cart');
     },
-    setQty: function (id, qty) {
+    setQty: function (id, qty, shade) {
       var arr = readKey(CART_KEY);
-      var idx = arr.findIndex(function (x) { return x.id === id; });
+      var idx = arr.findIndex(function (x) { return Cart.sameLine(x, id, shade); });
       if (idx === -1) return;
       if (qty <= 0) arr.splice(idx, 1);
       else arr[idx].qty = Math.min(99, Number(qty));
       writeKey(CART_KEY, arr);
       storeChanged('cart');
     },
-    remove: function (id) {
-      writeKey(CART_KEY, readKey(CART_KEY).filter(function (x) { return x.id !== id; }));
+    remove: function (id, shade) {
+      writeKey(CART_KEY, readKey(CART_KEY).filter(function (x) { return !Cart.sameLine(x, id, shade); }));
       storeChanged('cart');
     },
     clear: function () {
@@ -242,6 +385,14 @@
     return phHtml(DB.locName(p), seedOf(p));
   }
 
+  /* Thumbnail for an arbitrary image list (shade galleries, cart lines
+     with a selected shade): first image, or the brand placeholder. */
+  function mediaForImages(images, name, seed) {
+    var url = images && images.length ? String(images[0]) : '';
+    if (url) return '<img src="' + esc(url) + '" alt="' + esc(name || '') + '" loading="lazy">';
+    return phHtml(name || 'BB', seed || 0);
+  }
+
   function stockLabel(p) {
     if (p.stock <= 0) return '<span class="stock-dot dot-out"></span>' + I.t('out_of_stock');
     if (p.stock <= p.lowThreshold) {
@@ -252,6 +403,7 @@
 
   function productCard(p) {
     var wished = Wish.has(p.id);
+    registerShareProduct(p);
     var badges = '';
     if (p.onSale) badges += '<span class="badge badge-off">' + I.t('off_badge', { p: p.pct }) + '</span>';
     if (p.bestseller) badges += '<span class="badge badge-best">' + I.t('bestseller_badge') + '</span>';
@@ -266,6 +418,8 @@
       '<div class="card-badges">' + badges + '</div>' +
       '<button type="button" class="wish-btn' + (wished ? ' active' : '') + '" data-wish-id="' + esc(p.id) + '" ' +
       'aria-label="' + (wished ? I.t('pdp_in_wish') : I.t('pdp_add_wish')) + '">' + icon(wished ? 'heartFill' : 'heart', 18) + '</button>' +
+      '<button type="button" class="share-btn" data-share-id="' + esc(p.id) + '" ' +
+      'aria-label="' + I.t('share_product') + '" title="' + I.t('share_product') + '">' + icon('share', 15) + '</button>' +
       '</div>' +
       '<div class="card-info">' +
       '<p class="card-cat">' + esc(catLabel(p)) + '</p>' +
@@ -367,20 +521,7 @@
       '<button type="button" class="icon-btn search-close" data-i18n-aria="close">' + icon('x', 20) + '</button>' +
       '</form>' +
       '<div class="search-results" id="search-results" hidden></div>' +
-      '</div></div>' +
-      '<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>' +
-      '<nav class="mobile-drawer" id="mobile-drawer" aria-label="' + I.t('menu') + '" hidden>' +
-      '<div class="drawer-head">' +
-      '<span class="brand-main">BLUSH</span><span class="brand-sub">BEAUTY</span>' +
-      '<button type="button" class="icon-btn drawer-close" data-i18n-aria="close">' + icon('x', 22) + '</button>' +
-      '</div>' +
-      '<div class="drawer-links">' + navHtml +
-      '<a href="wishlist.html" data-i18n="nav_wishlist"></a>' +
-      '</div>' +
-      '<div class="drawer-foot">' +
-      '<button type="button" class="lang-btn" data-lang-toggle></button>' +
-      '</div>' +
-      '</nav>';
+      '</div></div>';
 
     I.apply(host);
     updateLangBtns();
@@ -429,24 +570,82 @@
       else { results.hidden = true; }
     }
 
-    /* mobile drawer */
-    var drawer = host.querySelector('#mobile-drawer');
-    var backdrop = host.querySelector('#drawer-backdrop');
-    host.querySelector('.nav-open').addEventListener('click', function () {
-      drawer.hidden = false;
-      backdrop.hidden = false;
-      document.body.classList.add('no-scroll');
-    });
-    host.querySelector('.drawer-close').addEventListener('click', closeDrawer);
+    /* mobile drawer — the drawer and its backdrop are appended to
+       <body>, NOT inside the header. The sticky header uses
+       backdrop-filter, which several browsers (notably Safari) treat
+       as a containing block for fixed-position descendants: inside the
+       header, the fixed drawer gets clipped and mispositioned. As
+       direct body children the drawer positions and stacks reliably on
+       every browser and every screen size. */
+    var staleDrawer = document.getElementById('mobile-drawer');
+    var staleBackdrop = document.getElementById('drawer-backdrop');
+    if (staleDrawer) staleDrawer.remove();
+    if (staleBackdrop) staleBackdrop.remove();
+
+    var backdrop = document.createElement('div');
+    backdrop.className = 'drawer-backdrop';
+    backdrop.id = 'drawer-backdrop';
+    backdrop.hidden = true;
+
+    var drawer = document.createElement('nav');
+    drawer.className = 'mobile-drawer';
+    drawer.id = 'mobile-drawer';
+    drawer.setAttribute('aria-label', I.t('menu'));
+    drawer.hidden = true;
+    drawer.innerHTML =
+      '<div class="drawer-head">' +
+      '<span class="brand-main">BLUSH</span><span class="brand-sub">BEAUTY</span>' +
+      '<button type="button" class="icon-btn drawer-close" data-i18n-aria="close">' + icon('x', 22) + '</button>' +
+      '</div>' +
+      '<div class="drawer-links">' + navHtml +
+      '<a href="wishlist.html" data-i18n="nav_wishlist"></a>' +
+      '</div>' +
+      '<div class="drawer-foot">' +
+      '<button type="button" class="lang-btn" data-lang-toggle></button>' +
+      '</div>';
+    document.body.appendChild(backdrop);
+    document.body.appendChild(drawer);
+    I.apply(drawer);
+
+    var burger = host.querySelector('.nav-open');
+    var lastFocus = null;
+    var closeTimer = null;
+
+    burger.addEventListener('click', openDrawer);
+    drawer.querySelector('.drawer-close').addEventListener('click', closeDrawer);
     backdrop.addEventListener('click', closeDrawer);
     drawer.querySelectorAll('.drawer-links a').forEach(function (a) {
       a.addEventListener('click', closeDrawer);
     });
+
+    function openDrawer() {
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+      lastFocus = document.activeElement;
+      drawer.hidden = false;
+      backdrop.hidden = false;
+      /* two frames so the slide/fade transition runs after display
+         toggles from none — forced reflow alone is not enough here */
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          drawer.classList.add('open');
+          backdrop.classList.add('show');
+        });
+      });
+      document.body.classList.add('no-scroll');
+      setTimeout(function () { drawer.querySelector('.drawer-close').focus(); }, 140);
+    }
+
     function closeDrawer() {
-      if (!drawer) return;
-      drawer.hidden = true;
-      backdrop.hidden = true;
+      if (drawer.hidden) return;
+      drawer.classList.remove('open');
+      backdrop.classList.remove('show');
       document.body.classList.remove('no-scroll');
+      closeTimer = setTimeout(function () {
+        drawer.hidden = true;
+        backdrop.hidden = true;
+        closeTimer = null;
+      }, 300);
+      if (lastFocus && lastFocus.focus) lastFocus.focus();
     }
 
     /* language buttons */
@@ -593,6 +792,14 @@
   ---------------------------------------------------------------- */
   function wireGlobal() {
     document.addEventListener('click', function (e) {
+      var shareBtn = e.target.closest('[data-share-id]');
+      if (shareBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        var sp = shareIndex[shareBtn.dataset.shareId];
+        if (sp) shareProduct(sp);
+        return;
+      }
       var wishBtn = e.target.closest('[data-wish-id]');
       if (wishBtn) {
         e.preventDefault();
@@ -637,11 +844,14 @@
     Wish: Wish,
     productCard: productCard,
     mediaHtml: mediaHtml,
+    mediaForImages: mediaForImages,
     phHtml: phHtml,
     seedOf: seedOf,
     stockLabel: stockLabel,
     catLabel: catLabel,
     qtyStepperHtml: qtyStepperHtml,
-    wireQtySteppers: wireQtySteppers
+    wireQtySteppers: wireQtySteppers,
+    registerShareProduct: registerShareProduct,
+    shareProduct: shareProduct
   };
 })();

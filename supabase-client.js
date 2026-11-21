@@ -36,7 +36,11 @@
 
   var MODE = client ? 'supabase' : 'demo';
 
-  var PRODUCT_SELECT = '*, cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
+  /* The gallery MUST be embedded in the product select: product photos
+     live in the product_images table, so without this join every
+     storefront card and the PDP would fall back to the initials
+     placeholder even for fully photographed products. */
+  var PRODUCT_SELECT = '*, images:product_images(id,product_id,url,alt,position), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
 
   /* ----------------------------------------------------------------
      Helpers
@@ -69,7 +73,13 @@
     var price = Number(row.price) || 0;
     var finalPrice = onSale ? Number(row.discount_price) : price;
     var pct = onSale && price > 0 ? Math.round((1 - finalPrice / price) * 100) : 0;
-    var images = (row.images || []).map(function (im) {
+    /* Embedded product_images rows arrive unordered: sort by their
+       admin-defined position, then map to plain URLs. String entries
+       (demo catalog) pass through in their given order. */
+    var images = (row.images || []).slice().sort(function (a, b) {
+      if (typeof a === 'string' || typeof b === 'string') return 0;
+      return (Number(a && a.position) || 0) - (Number(b && b.position) || 0);
+    }).map(function (im) {
       return typeof im === 'string' ? im : (im && im.url) || '';
     }).filter(Boolean);
     return {
@@ -357,6 +367,56 @@
   }
 
   /* ----------------------------------------------------------------
+     Product shades — variations of ONE product. Every shade has its
+     own stock and its own independent image gallery
+     (products -> product_shades -> product_shade_images).
+  ---------------------------------------------------------------- */
+  var shadesCache = {}; /* productId -> {list, at} (storefront only) */
+
+  function mapShade(row) {
+    var images = (row.images || []).map(function (im) {
+      return typeof im === 'string' ? { url: im } : im;
+    }).sort(function (a, b) { return (Number(a.position) || 0) - (Number(b.position) || 0); });
+    return {
+      id: row.id,
+      productId: row.product_id,
+      number: Number(row.shade_number) || 1,
+      nameEn: row.shade_name_en || '',
+      nameAr: row.shade_name_ar || '',
+      stock: Number(row.stock_quantity) || 0,
+      lowThreshold: Number(row.low_stock_threshold) || 5,
+      active: !!row.is_active,
+      order: Number(row.display_order) || 0,
+      images: images
+    };
+  }
+
+  function getShades(productId, opts) {
+    opts = opts || {};
+    if (MODE === 'demo') {
+      var list = DEMO.findShades(productId).map(mapShade);
+      return Promise.resolve(opts.admin ? list : list.filter(function (s) { return s.active; }));
+    }
+    if (!opts.admin && shadesCache[productId] && Date.now() - shadesCache[productId].at < 60000) {
+      return Promise.resolve(shadesCache[productId].list.map(function (s) { return Object.assign({}, s, { images: s.images.slice() }); }));
+    }
+    return client.from('product_shades')
+      .select('*, images:product_shade_images(*)')
+      .eq('product_id', productId)
+      .order('display_order').order('shade_number')
+      .then(function (res) {
+        if (res.error) throw res.error;
+        var mapped = (res.data || []).map(mapShade);
+        if (!opts.admin) {
+          shadesCache[productId] = { list: mapped, at: Date.now() };
+          return mapped.filter(function (s) { return s.active; })
+            .map(function (s) { return Object.assign({}, s, { images: s.images.slice() }); });
+        }
+        return mapped;
+      });
+  }
+
+  /* ----------------------------------------------------------------
      Orders
   ---------------------------------------------------------------- */
   function demoOrdersAll() { return DEMO.loadOrders(); }
@@ -375,14 +435,33 @@
           return Promise.reject(new Error('A product in your cart is no longer available.'));
         }
         var qty = Math.max(1, Math.min(99, Number(items[i].quantity) || 1));
-        if (p.stock < qty) {
+        /* Shade-aware stock validation: for shaded lines only the
+           selected shade's stock matters. */
+        var shadeRow = null;
+        if (items[i].shade_id) {
+          shadeRow = DEMO.findShades(p.id).find(function (s) {
+            return s.id === items[i].shade_id && s.is_active;
+          });
+          if (!shadeRow) {
+            return Promise.reject(new Error('The selected shade is no longer available.'));
+          }
+          if (shadeRow.stock_quantity < qty) {
+            return Promise.reject(new Error('Insufficient stock: ' + p.name_en));
+          }
+        } else if (p.stock < qty) {
           return Promise.reject(new Error('Insufficient stock: ' + p.name_en));
         }
         var unit = DEMO.unitPrice(p);
         var line = Math.round(unit * qty * 100) / 100;
         subtotal += line;
         lines.push({
-          product_id: p.id, product_name_en: p.name_en, product_name_ar: p.name_ar,
+          product_id: p.id,
+          shade_id: shadeRow ? shadeRow.id : null,
+          shade_number: shadeRow ? shadeRow.shade_number : null,
+          shade_name_en: shadeRow ? shadeRow.shade_name_en : null,
+          shade_name_ar: shadeRow ? shadeRow.shade_name_ar : null,
+          shade_image_url: (shadeRow && shadeRow.images.length) ? shadeRow.images[0].url : null,
+          product_name_en: p.name_en, product_name_ar: p.name_ar,
           sku: p.sku, unit_price: unit, quantity: qty, line_total: line
         });
       }
@@ -425,7 +504,11 @@
 
     var body = {
       items: items.map(function (it) {
-        return { product_id: it.product_id, quantity: Number(it.quantity) };
+        /* shade_id present only for shaded lines; the server re-validates
+           that the shade belongs to the product and has enough stock. */
+        var line = { product_id: it.product_id, quantity: Number(it.quantity) };
+        if (it.shade_id) line.shade_id = it.shade_id;
+        return line;
       }),
       customer: {
         full_name: cust.full_name, phone: normalizePhone(cust.phone),
@@ -598,10 +681,10 @@
     setOrderStatus: function (orderId, status) {
       return client.rpc('admin_set_order_status', { p_order_id: orderId, p_status: status });
     },
-    adjustStock: function (productId, change, notes) {
-      return client.rpc('admin_adjust_stock', {
-        p_product_id: productId, p_change: change, p_notes: notes || null
-      });
+    adjustStock: function (productId, change, notes, shadeId) {
+      var args = { p_product_id: productId, p_change: change, p_notes: notes || null };
+      if (shadeId) args.p_shade_id = shadeId;
+      return client.rpc('admin_adjust_stock', args);
     },
     cleanupPreview: function () {
       return client.rpc('cleanup_demo_preview');
@@ -627,6 +710,7 @@
     getBestsellers: getBestsellers,
     getFlashSales: getFlashSales,
     search: search,
+    getShades: getShades,
     createOrder: createOrder,
     trackOrder: trackOrder,
     confirmSimulatedPayment: confirmSimulatedPayment,

@@ -58,7 +58,13 @@
 
       var itemsHtml = (o.items || []).map(function (it) {
         var name = I.lang === 'ar' ? (it.product_name_ar || it.product_name_en) : (it.product_name_en || it.product_name_ar);
-        return '<div class="track-item"><span>' + UI.esc(name) + ' <span class="qty num">\u00d7 ' + it.quantity + '</span></span>' +
+        var shadeTxt = '';
+        if (it.shade_number !== null && it.shade_number !== undefined) {
+          var sname = I.lang === 'ar' ? (it.shade_name_ar || it.shade_name_en) : (it.shade_name_en || it.shade_name_ar);
+          shadeTxt = I.t('shade_numbered', { n: it.shade_number }) + (sname ? ' \u2014 ' + sname : '');
+        }
+        return '<div class="track-item"><span>' + UI.esc(name) + ' <span class="qty num">\u00d7 ' + it.quantity + '</span>' +
+          (shadeTxt ? '<span class="track-shade">' + UI.esc(shadeTxt) + '</span>' : '') + '</span>' +
           '<span class="num">' + UI.money(it.line_total) + '</span></div>';
       }).join('');
 

@@ -23,36 +23,39 @@
 
       renderCategories();
       renderBanners();
+      renderRibbon(s);
 
       if (s.show_flash_sales === false) {
         hide('section-flash');
       } else {
         DB.getFlashSales(8).then(function (items) {
-          if (!items.length) return hide('section-flash');
+          /* Empty state instead of hiding: the section stays visible
+             with an explanatory note (never a blank page). */
+          if (!items.length) return showNote('section-flash', 'flash-row', 'empty');
           show('section-flash');
           document.getElementById('flash-row').innerHTML = items.map(UI.productCard).join('');
           startCountdown(items);
-        }).catch(function () { hide('section-flash'); });
+        }).catch(function () { showNote('section-flash', 'flash-row', 'error'); });
       }
 
       if (s.show_featured === false) {
         hide('section-featured');
       } else {
         DB.getFeatured(8).then(function (items) {
-          if (!items.length) return hide('section-featured');
+          if (!items.length) return showNote('section-featured', 'featured-row', 'empty');
           show('section-featured');
           document.getElementById('featured-row').innerHTML = items.map(UI.productCard).join('');
-        }).catch(function () { hide('section-featured'); });
+        }).catch(function () { showNote('section-featured', 'featured-row', 'error'); });
       }
 
       if (s.show_bestsellers === false) {
         hide('section-best');
       } else {
         DB.getBestsellers(8).then(function (items) {
-          if (!items.length) return hide('section-best');
+          if (!items.length) return showNote('section-best', 'best-row', 'empty');
           show('section-best');
           document.getElementById('best-row').innerHTML = items.map(UI.productCard).join('');
-        }).catch(function () { hide('section-best'); });
+        }).catch(function () { showNote('section-best', 'best-row', 'error'); });
       }
     }
   }
@@ -63,6 +66,18 @@
   }
   function hide(id) { var el = document.getElementById(id); if (el) el.hidden = true; }
   function show(id) { var el = document.getElementById(id); if (el) el.hidden = false; }
+
+  /* Sections render a visible note instead of disappearing when the
+     database returns no rows or the query fails — the homepage must
+     never collapse to an empty shell because of a data error. */
+  function showNote(sectionId, rowId, kind) {
+    show(sectionId);
+    var row = document.getElementById(rowId);
+    if (row) {
+      row.innerHTML = '<p class="row-note' + (kind === 'error' ? ' row-note-error' : '') + '">' +
+        UI.esc(kind === 'error' ? I.t('home_error_note') : I.t('home_empty_note')) + '</p>';
+    }
+  }
 
   function renderCategories() {
     DB.getCategories().then(function (cats) {
@@ -86,12 +101,46 @@
           UI.icon('arrowRight', 16, 'flip-rtl') +
           '</div></a>';
       }).join('');
-    }).catch(function () { /* ignore */ });
+    }).catch(function () {
+      /* Query failed (permissions, connectivity): show the note rather
+         than leaving the category grid silently empty. */
+      var grid = document.getElementById('cat-grid');
+      if (grid) grid.innerHTML = '<p class="muted">' + UI.esc(I.t('home_error_note')) + '</p>';
+    });
   }
 
   function initialsOf(name) {
     var w = String(name || '').trim().split(/\s+/);
     return ((w[0] || '').charAt(0) + (w[1] ? w[1].charAt(0) : '')).toUpperCase() || 'B';
+  }
+
+  /* Animated promo ribbon under "Shop by Category".
+     Enabled by default; text, Arabic text and background color come
+     from site settings (admin: Settings -> Promo Ribbon). When the
+     setting is absent (column not migrated yet) the defaults apply. */
+  var RIBBON_DEFAULT_TEXT = 'Glow, girl, glow! \u2728';
+  var RIBBON_DEFAULT_COLOR = '#F72585';
+  var RIBBON_REPEATS = 20; /* per group; keeps one group wider than any viewport */
+
+  function renderRibbon(s) {
+    s = s || {};
+    var sec = document.getElementById('section-promo-ribbon');
+    var ribbon = document.getElementById('promo-ribbon');
+    var track = document.getElementById('ribbon-track');
+    if (!sec || !ribbon || !track) return;
+
+    if (s.promo_ribbon_enabled === false) { sec.hidden = true; return; }
+
+    var textEn = s.promo_ribbon_text_en || RIBBON_DEFAULT_TEXT;
+    var text = I.lang === 'ar' ? (s.promo_ribbon_text_ar || textEn) : textEn;
+    var color = s.promo_ribbon_color || RIBBON_DEFAULT_COLOR;
+
+    ribbon.style.background = color;
+    var item = '<span class="ribbon-item">' + UI.esc(text) + '</span>';
+    var group = '<span class="ribbon-group">' + item.repeat(RIBBON_REPEATS) + '</span>';
+    track.innerHTML = group +
+      '<span class="ribbon-group" aria-hidden="true">' + item.repeat(RIBBON_REPEATS) + '</span>';
+    sec.hidden = false;
   }
 
   function renderBanners() {

@@ -199,9 +199,22 @@
       document.getElementById('load-more-wrap').hidden = state.offset >= res.total;
       state.loading = false;
     }).catch(function (err) {
+      /* Visible error state in the grid (never a blank page): friendly
+         note + the technical message (for the store owner) + retry. */
       state.loading = false;
       if (reset) grid.innerHTML = '';
-      UI.toast(err.message || I.t('error_generic'), 'error');
+      var box = document.createElement('div');
+      box.className = 'grid-error';
+      box.innerHTML =
+        '<p class="grid-error-note">' + UI.esc(I.t('shop_error_note')) + '</p>' +
+        '<p class="grid-error-detail">' + UI.esc((err && err.message) || I.t('error_generic')) + '</p>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-retry>' + UI.esc(I.t('retry')) + '</button>';
+      box.querySelector('[data-retry]').addEventListener('click', function () {
+        box.remove();
+        load(true);
+      });
+      grid.appendChild(box);
+      UI.toast((err && err.message) || I.t('error_generic'), 'error');
     });
   }
 

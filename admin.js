@@ -29,7 +29,8 @@
     categories: null,
     settings: null,
     homepage: null,
-    banners: null
+    banners: null,
+    shades: null
   };
 
   /* ============================================================
@@ -693,6 +694,83 @@
     }
   }
 
+  /* ============================================================
+     Product shades (admin)
+     Each shade: independent stock + independent image gallery.
+     Working objects: {id|null, shade_number, shade_name_en,
+     shade_name_ar, stock_quantity, is_active, display_order,
+     images:[rows], staged:[files]} — edits persist with the
+     product "Save" button; image delete/replace/reorder apply
+     immediately (same pattern as product images).
+  ============================================================ */
+  function mapShadeRow(row) {
+    return {
+      id: row.id || null,
+      product_id: row.product_id || null,
+      shade_number: Number(row.shade_number) || 1,
+      shade_name_en: row.shade_name_en || '',
+      shade_name_ar: row.shade_name_ar || '',
+      stock_quantity: Number(row.stock_quantity) || 0,
+      low_stock_threshold: Number(row.low_stock_threshold) || 5,
+      is_active: row.is_active !== false,
+      display_order: Number(row.display_order) || 0,
+      images: (row.images || []).slice().sort(function (a, b) {
+        return (Number(a.position) || 0) - (Number(b.position) || 0);
+      }),
+      staged: [],
+      _removed: false
+    };
+  }
+
+  function loadShadesFor(productId) {
+    if (state.preview) return Promise.resolve(DEMO.findShades(productId).map(mapShadeRow));
+    return sb.from('product_shades')
+      .select('*, images:product_shade_images(*)')
+      .eq('product_id', productId)
+      .order('display_order').order('shade_number')
+      .then(function (res) {
+        if (res.error) throw res.error;
+        return (res.data || []).map(mapShadeRow);
+      });
+  }
+
+  /* Light shade list for the inventory table (no images). */
+  function loadAllShades(force) {
+    if (state.preview) {
+      return Promise.resolve(DEMO.shades.map(function (s) {
+        return { id: s.id, product_id: s.product_id, shade_number: s.shade_number,
+          shade_name_en: s.shade_name_en, shade_name_ar: s.shade_name_ar,
+          stock_quantity: s.stock_quantity, is_active: s.is_active, display_order: s.display_order };
+      }));
+    }
+    if (cache.shades && !force) return Promise.resolve(cache.shades);
+    return sb.from('product_shades')
+      .select('id,product_id,shade_number,shade_name_en,shade_name_ar,stock_quantity,is_active,display_order')
+      .limit(2000)
+      .then(function (res) {
+        if (res.error) throw res.error;
+        cache.shades = res.data || [];
+        return cache.shades;
+      });
+  }
+
+  function shadeStoragePath(url) {
+    /* derive the storage object path from a public URL (best effort) */
+    try {
+      var m = /\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/.exec(url);
+      return m ? { bucket: m[1], path: m[2] } : null;
+    } catch (e) { return null; }
+  }
+
+  function removeShadeImageFile(url) {
+    if (state.preview) return Promise.resolve();
+    try {
+      var m = /\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/.exec(url);
+      if (!m) return Promise.resolve();
+      return sb.storage.from(m[1]).remove([m[2]]);
+    } catch (e) { return Promise.resolve(); }
+  }
+
   function openProductModal(row, onDone) {
     var isNew = !row;
     var p = row || {
@@ -703,10 +781,16 @@
       images: []
     };
 
-    Promise.all([loadCategories(), isNew || state.preview ? Promise.resolve([]) :
-      sb.from('product_images').select('*').eq('product_id', p.id).order('position')]).then(function (res) {
+    Promise.all([
+      loadCategories(),
+      isNew || state.preview ? Promise.resolve([]) :
+        sb.from('product_images').select('*').eq('product_id', p.id).order('position'),
+      isNew ? Promise.resolve([]) : loadShadesFor(p.id)
+    ]).then(function (res) {
       var cats = res[0];
       var images = (res[1] && res[1].data) ? res[1].data : (res[1] || []);
+      var shades = res[2] || []; /* working shade objects (see mapShadeRow) */
+      var deletedShadeIds = []; /* shades removed in the UI, deleted on save */
       var staged = []; /* [{file}] */
       var mainCats = cats.filter(function (c) { return !c.parent_id; });
       var subs = cats.filter(function (c) { return c.parent_id === (p.category_id || '__none__'); });
@@ -753,6 +837,11 @@
         '<div class="upload-drop mt-1" id="img-drop">' + UI.icon('upload', 20) + '<span>' + I.t('ad_img_upload') + '</span>' +
         '<input type="file" id="img-input" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden></div>' +
         '<div class="img-manager" id="img-list"></div>' +
+
+        '<div class="adm-section-title">' + I.t('ad_shades') + '</div>' +
+        '<p class="hint">' + I.t('ad_shades_hint') + '</p>' +
+        '<div id="shade-list" class="mt-1"></div>' +
+        '<button type="button" class="btn btn-ghost btn-sm mt-1" id="shade-add">' + UI.icon('plus', 14) + I.t('ad_add_shade') + '</button>' +
         '<div class="adm-modal-footer">' +
         '<button type="button" class="btn btn-ghost" data-close-x>' + I.t('ad_cancel') + '</button>' +
         '<button type="button" class="btn btn-primary" id="p-save">' + I.t('ad_save') + '</button>' +
@@ -842,6 +931,279 @@
         });
       }
 
+      /* ---------- shades UI ---------- */
+      var shadeHost = q('#shade-list', m.body);
+      var filePicker = document.createElement('input');
+      filePicker.type = 'file';
+      filePicker.accept = 'image/jpeg,image/png,image/webp,image/avif';
+      filePicker.hidden = true;
+      m.body.appendChild(filePicker);
+      var pickTarget = null; /* {type: 'upload'|'replace', shadeIdx, imgIdx} */
+      filePicker.addEventListener('change', function () {
+        var files = Array.prototype.slice.call(filePicker.files);
+        filePicker.value = '';
+        if (!files.length || !pickTarget) return;
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); pickTarget = null; return; }
+        if (pickTarget.type === 'upload') {
+          shades[pickTarget.shadeIdx].staged = shades[pickTarget.shadeIdx].staged.concat(files);
+          drawShades();
+        } else if (pickTarget.type === 'replace') {
+          replaceShadeImage(pickTarget.shadeIdx, pickTarget.imgIdx, files[0]);
+        }
+        pickTarget = null;
+      });
+
+      function drawShades() {
+        if (!shades.length) {
+          shadeHost.innerHTML = '<p class="hint">' + I.t('ad_shade_none') + '</p>';
+          return;
+        }
+        shadeHost.innerHTML = shades.map(function (sh, sIdx) {
+          var tiles = sh.images.map(function (im, iIdx) {
+            return '<div class="img-tile" data-url="' + esc(im.url) + '">' +
+              '<div class="box"><img src="' + esc(im.url) + '" alt=""></div>' +
+              (iIdx === 0 ? '<span class="main-flag">' + I.t('ad_img_main_badge') + '</span>' : '') +
+              '<div class="tile-actions">' +
+              (iIdx > 0 ? '<button type="button" data-s-imgleft="' + sIdx + ':' + iIdx + '">' + UI.icon('chevLeft', 12) + I.t('ad_img_move') + '</button>' : '') +
+              (iIdx < sh.images.length - 1 ? '<button type="button" data-s-imgright="' + sIdx + ':' + iIdx + '">' + I.t('ad_img_move') + UI.icon('chevRight', 12) + '</button>' : '') +
+              '<button type="button" data-s-replace="' + sIdx + ':' + iIdx + '">' + I.t('ad_img_replace') + '</button>' +
+              '<button type="button" data-s-delimg="' + sIdx + ':' + iIdx + '">' + I.t('ad_img_delete') + '</button>' +
+              '</div></div>';
+          });
+          tiles = tiles.concat(sh.staged.map(function (f, stIdx) {
+            return '<div class="img-tile"><div class="box"><img src="' + URL.createObjectURL(f) + '" alt=""></div>' +
+              '<span class="main-flag" style="background:var(--pink-deep)">' + I.t('ad_img_upload') + '</span>' +
+              '<div class="tile-actions"><button type="button" data-s-delstaged="' + sIdx + ':' + stIdx + '">' + I.t('ad_img_delete') + '</button></div></div>';
+          }));
+          var dis = state.preview ? ' disabled' : '';
+          return '<div class="adm-shade-card">' +
+            '<div class="adm-shade-head">' +
+            '<span class="adm-shade-badge num">' + esc(I.t('shade_label')) + ' ' + (sIdx + 1) + '</span>' +
+            '<span class="spacer"></span>' +
+            '<button type="button" class="icon-sm" data-s-up="' + sIdx + '" aria-label="' + esc(I.t('ad_img_move')) + '"' + (sIdx === 0 || state.preview ? ' disabled' : '') + '>' + UI.icon('chevUp', 14) + '</button>' +
+            '<button type="button" class="icon-sm" data-s-down="' + sIdx + '" aria-label="' + esc(I.t('ad_img_move')) + '"' + (sIdx === shades.length - 1 || state.preview ? ' disabled' : '') + '>' + UI.icon('chevDown', 14) + '</button>' +
+            '<button type="button" class="icon-sm" data-s-del="' + sIdx + '" aria-label="' + esc(I.t('ad_delete')) + '">' + UI.icon('trash', 15) + '</button>' +
+            '</div>' +
+            '<div class="adm-form-grid g4">' +
+            '<div class="field"><label>' + I.t('ad_shade_number') + '</label><input class="input is-ltr" data-s-field="shade_number" data-s-idx="' + sIdx + '" inputmode="numeric" value="' + esc(sh.shade_number) + '"' + dis + '></div>' +
+            '<div class="field"><label>' + I.t('ad_shade_stock') + '</label><input class="input is-ltr" data-s-field="stock_quantity" data-s-idx="' + sIdx + '" inputmode="numeric" value="' + esc(sh.stock_quantity) + '"' + dis + '></div>' +
+            '<div class="field"><label>' + I.t('ad_shade_name_en') + '</label><input class="input" data-s-field="shade_name_en" data-s-idx="' + sIdx + '" value="' + esc(sh.shade_name_en) + '"' + dis + '></div>' +
+            '<div class="field"><label>' + I.t('ad_shade_name_ar') + '</label><input class="input" dir="rtl" data-s-field="shade_name_ar" data-s-idx="' + sIdx + '" value="' + esc(sh.shade_name_ar) + '"' + dis + '></div>' +
+            '</div>' +
+            '<label class="checkbox-row"><input type="checkbox" data-s-field="is_active" data-s-idx="' + sIdx + '"' + (sh.is_active ? ' checked' : '') + dis + '> <span>' + I.t('ad_shade_active') + '</span></label>' +
+            '<p class="hint mt-1">' + esc(I.t('ad_shade_images')) + ' \u00b7 ' + esc(I.t('ad_shade_images_hint')) + '</p>' +
+            '<div class="upload-drop" data-s-upload="' + sIdx + '"' + dis + '>' + UI.icon('upload', 18) + '<span>' + I.t('ad_img_upload') + '</span></div>' +
+            (tiles.length ? '<div class="img-manager">' + tiles.join('') + '</div>' : '') +
+            '</div>';
+        }).join('');
+      }
+
+      function parseIdx(v) {
+        var parts = String(v).split(':');
+        return [Number(parts[0]), Number(parts[1])];
+      }
+
+      shadeHost.addEventListener('click', function (e) {
+        var up = e.target.closest('[data-s-up]');
+        var down = e.target.closest('[data-s-down]');
+        var del = e.target.closest('[data-s-del]');
+        var delStaged = e.target.closest('[data-s-delstaged]');
+        var delImg = e.target.closest('[data-s-delimg]');
+        var imgLeft = e.target.closest('[data-s-imgleft]');
+        var imgRight = e.target.closest('[data-s-imgright]');
+        var replaceBtn = e.target.closest('[data-s-replace]');
+        var uploadDrop = e.target.closest('[data-s-upload]');
+        if (up) {
+          moveShade(Number(up.dataset.sUp), -1);
+        } else if (down) {
+          moveShade(Number(down.dataset.sDown), 1);
+        } else if (del) {
+          deleteShade(Number(del.dataset.sDel));
+        } else if (uploadDrop) {
+          if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+          pickTarget = { type: 'upload', shadeIdx: Number(uploadDrop.dataset.sUpload) };
+          filePicker.multiple = true;
+          filePicker.click();
+        } else if (replaceBtn) {
+          if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+          var pr = parseIdx(replaceBtn.dataset.sReplace);
+          pickTarget = { type: 'replace', shadeIdx: pr[0], imgIdx: pr[1] };
+          filePicker.multiple = false;
+          filePicker.click();
+        } else if (delStaged) {
+          var ds = parseIdx(delStaged.dataset.sDelstaged);
+          shades[ds[0]].staged.splice(ds[1], 1);
+          drawShades();
+        } else if (delImg) {
+          var di = parseIdx(delImg.dataset.sDelimg);
+          deleteShadeImage(di[0], di[1]);
+        } else if (imgLeft || imgRight) {
+          var mv = parseIdx((imgLeft || imgRight).dataset[imgLeft ? 'sImgleft' : 'sImgright']);
+          moveShadeImage(mv[0], mv[1], imgLeft ? -1 : 1);
+        }
+      });
+
+      shadeHost.addEventListener('change', function (e) {
+        var fieldEl = e.target.closest('[data-s-field]');
+        if (!fieldEl || state.preview) return;
+        var sh = shades[Number(fieldEl.dataset.sIdx)];
+        if (!sh) return;
+        var f = fieldEl.dataset.sField;
+        if (f === 'is_active') sh.is_active = fieldEl.checked;
+        else if (f === 'shade_number') sh.shade_number = parseInt(fieldEl.value, 10) || 1;
+        else if (f === 'stock_quantity') sh.stock_quantity = Math.max(0, parseInt(fieldEl.value, 10) || 0);
+        else sh[f] = fieldEl.value;
+      });
+
+      q('#shade-add', m.body).addEventListener('click', function () {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        var nextNum = shades.reduce(function (m2, s) { return Math.max(m2, s.shade_number); }, 0) + 1;
+        shades.push(mapShadeRow({ shade_number: nextNum, is_active: true, stock_quantity: 0, images: [] }));
+        drawShades();
+      });
+
+      drawShades();
+
+      function moveShade(idx, dir) {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        var j = idx + dir;
+        if (j < 0 || j >= shades.length) return;
+        var tmp = shades[idx]; shades[idx] = shades[j]; shades[j] = tmp;
+        drawShades();
+      }
+
+      function deleteShade(idx) {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        var sh = shades[idx];
+        UI.confirm({
+          title: I.t('ad_delete'),
+          text: I.t('ad_shade_delete_confirm'),
+          okLabel: I.t('ad_delete'),
+          danger: true
+        }).then(function (ok) {
+          if (!ok) return;
+          /* best-effort cleanup of the shade's stored image files */
+          Promise.all(sh.images.map(function (im) { return removeShadeImageFile(im.url); }))
+            .catch(function () { /* non-fatal */ });
+          if (sh.id) deletedShadeIds.push(sh.id);
+          shades.splice(idx, 1);
+          drawShades();
+        });
+      }
+
+      function deleteShadeImage(sIdx, iIdx) {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        var sh = shades[sIdx];
+        var im = sh.images[iIdx];
+        if (!im) return;
+        removeShadeImageFile(im.url).then(function () {
+          return sb.from('product_shade_images').delete().eq('id', im.id);
+        }).then(function (res) {
+          if (res.error) throw res.error;
+          sh.images.splice(iIdx, 1);
+          return Promise.all(sh.images.map(function (x, i) {
+            return sb.from('product_shade_images').update({ position: i }).eq('id', x.id);
+          }));
+        }).then(function () {
+          drawShades();
+          UI.toast(I.t('ad_deleted'), 'ok');
+        }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+      }
+
+      function moveShadeImage(sIdx, iIdx, dir) {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        var sh = shades[sIdx];
+        var j = iIdx + dir;
+        if (j < 0 || j >= sh.images.length) return;
+        var a = sh.images[iIdx], b = sh.images[j];
+        Promise.all([
+          sb.from('product_shade_images').update({ position: j }).eq('id', a.id),
+          sb.from('product_shade_images').update({ position: iIdx }).eq('id', b.id)
+        ]).then(function (r1) {
+          if (r1[0].error) throw r1[0].error;
+          if (r1[1].error) throw r1[1].error;
+          sh.images[iIdx] = b; sh.images[j] = a;
+          drawShades();
+        }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+      }
+
+      function replaceShadeImage(sIdx, iIdx, file) {
+        var sh = shades[sIdx];
+        var im = sh.images[iIdx];
+        if (!im || !sh.id || !p.id) return;
+        var folder = 'products/' + p.id + '/shades/' + sh.id;
+        DB.admin.uploadImage('products', folder, file).then(function (url) {
+          if (!url) throw new Error(I.t('error_generic'));
+          return sb.from('product_shade_images').update({ url: url, alt: im.alt || '' }).eq('id', im.id)
+            .then(function (res) {
+              if (res.error) throw res.error;
+              return removeShadeImageFile(im.url);
+            })
+            .then(function () { return url; });
+        }).then(function (url) {
+          im.url = url;
+          drawShades();
+          UI.toast(I.t('ad_saved'), 'ok');
+        }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+      }
+
+      /* Persists the shade working objects after the product row is saved. */
+      function saveShades(productId) {
+        if (state.preview) return Promise.resolve();
+        if (!shades.length && !deletedShadeIds.length) return Promise.resolve();
+        var delTask = deletedShadeIds.length
+          ? sb.from('product_shades').delete().in('id', deletedShadeIds)
+          : Promise.resolve({ error: null });
+        return delTask.then(function (r0) {
+          if (r0.error) throw r0.error;
+          /* insert/update in display order */
+          return shades.reduce(function (chain, sh, idx) {
+            return chain.then(function () {
+              var payload = {
+                shade_number: sh.shade_number,
+                shade_name_en: sh.shade_name_en.trim(),
+                shade_name_ar: sh.shade_name_ar.trim(),
+                stock_quantity: sh.stock_quantity,
+                is_active: sh.is_active,
+                display_order: idx
+              };
+              if (sh.id) {
+                return sb.from('product_shades').update(payload).eq('id', sh.id)
+                  .then(function (r) { if (r.error) throw r.error; });
+              }
+              return sb.from('product_shades').insert(Object.assign({ product_id: productId }, payload)).select().single()
+                .then(function (r) {
+                  if (r.error) throw r.error;
+                  sh.id = r.data.id;
+                  sh.product_id = productId;
+                });
+            });
+          }, Promise.resolve());
+        }).then(function () {
+          /* upload staged files into each shade's own gallery */
+          return shades.reduce(function (chain, sh) {
+            return chain.then(function () {
+              if (!sh.staged.length) return Promise.resolve();
+              var folder = 'products/' + productId + '/shades/' + sh.id;
+              return sh.staged.reduce(function (inner, file, i) {
+                return inner.then(function () {
+                  return DB.admin.uploadImage('products', folder, file).then(function (url) {
+                    if (!url) return;
+                    return sb.from('product_shade_images').insert({
+                      shade_id: sh.id, url: url,
+                      alt: sh.shade_name_en || '', position: sh.images.length + i
+                    }).then(function (r2) {
+                      if (r2.error) throw r2.error;
+                      sh.images.push({ id: r2.data.id, shade_id: sh.id, url: url, position: sh.images.length });
+                    });
+                  });
+                });
+              }, Promise.resolve());
+            });
+          }, Promise.resolve());
+        });
+      }
+
       function validate() {
         var errs = [];
         if (!q('#f-name-en', m.body).value.trim() || !q('#f-name-ar', m.body).value.trim()) errs.push(I.t('ad_err_names'));
@@ -856,6 +1218,17 @@
         var stock = parseInt(q('#f-stock', m.body).value, 10);
         if (isNaN(stock) || stock < 0) errs.push(I.t('ad_err_stock'));
         if (!q('#f-cat', m.body).value) errs.push(I.t('ad_err_category'));
+        /* shades: unique positive numbers, stock >= 0 */
+        var seenNums = {};
+        shades.forEach(function (sh) {
+          if (!sh.shade_number || sh.shade_number < 1 || seenNums[sh.shade_number]) {
+            if (errs.indexOf(I.t('ad_err_shade_number')) === -1) errs.push(I.t('ad_err_shade_number'));
+          }
+          seenNums[sh.shade_number] = true;
+          if (isNaN(sh.stock_quantity) || sh.stock_quantity === null || sh.stock_quantity < 0) {
+            if (errs.indexOf(I.t('ad_err_shade_stock')) === -1) errs.push(I.t('ad_err_shade_stock'));
+          }
+        });
         return errs;
       }
 
@@ -908,7 +1281,12 @@
               });
             });
           }, Promise.resolve()).then(function () {
+            /* persist the shade definitions (inserts, updates, deletions,
+               staged shade-image uploads) */
+            return saveShades(saved.id);
+          }).then(function () {
             cache.products = null;
+            cache.shades = null;
             UI.toast(I.t('ad_saved'), 'ok');
             m.close();
             onDone && onDone();
@@ -1309,8 +1687,15 @@
     loadOrderItems(order).then(function (items) {
       var itemsHtml = (items || []).map(function (it) {
         var nm = I.lang === 'ar' ? (it.product_name_ar || it.product_name_en) : (it.product_name_en || it.product_name_ar);
+        var shadeTxt = '';
+        if (it.shade_number !== null && it.shade_number !== undefined) {
+          var sname = I.lang === 'ar' ? (it.shade_name_ar || it.shade_name_en) : (it.shade_name_en || it.shade_name_ar);
+          shadeTxt = I.t('shade_numbered', { n: it.shade_number }) + (sname ? ' \u2014 ' + sname : '');
+        }
         return '<div class="od-item"><span>' + esc(nm) + ' <span class="qty num">\u00d7 ' + it.quantity + '</span>' +
-          '<div class="t-sub num">' + esc(it.sku) + '</div></span>' +
+          '<div class="t-sub num">' + esc(it.sku) + '</div>' +
+          (shadeTxt ? '<div class="od-shade">' + UI.icon('palette', 12) + ' ' + esc(shadeTxt) + '</div>' : '') +
+          '</span>' +
           '<span class="num">' + money(it.unit_price) + ' \u00d7 ' + it.quantity + ' = <b>' + money(it.line_total) + '</b></span></div>';
       }).join('');
 
@@ -1528,7 +1913,14 @@
     });
 
     function drawStock() {
-      loadProducts().then(function (products) {
+      Promise.all([loadProducts(), loadAllShades()]).then(function (res) {
+        var products = res[0];
+        var allShades = res[1];
+        var shadesByProduct = {};
+        allShades.forEach(function (s) {
+          if (!shadesByProduct[s.product_id]) shadesByProduct[s.product_id] = [];
+          shadesByProduct[s.product_id].push(s);
+        });
         var list = products.filter(function (p) {
           if (invUi.filter === 'low') return p.stock > 0 && p.stock <= (p.low_stock_threshold || 5);
           if (invUi.filter === 'out') return Number(p.stock) === 0;
@@ -1539,10 +1931,18 @@
           '<th>' + I.t('ad_th_name') + '</th><th>' + I.t('ad_th_sku') + '</th><th>' + I.t('ad_th_stock') + '</th><th>' + I.t('ad_low_threshold') + '</th><th></th>' +
           '</tr></thead><tbody>' +
           (list.length ? list.map(function (p) {
+            var sh = shadesByProduct[p.id] || [];
+            var shadeCell = sh.length
+              ? '<div class="shade-stock-list">' + sh.map(function (s) {
+                  var cls = Number(s.stock_quantity) === 0 ? 'pill-danger' : (Number(s.stock_quantity) <= (p.low_stock_threshold || 5) ? 'pill-warn' : 'pill-ok');
+                  var nm = I.lang === 'ar' ? (s.shade_name_ar || s.shade_name_en) : (s.shade_name_en || s.shade_name_ar);
+                  return '<span class="pill ' + cls + '">' + esc(I.t('shade_label')) + ' ' + esc(s.shade_number) + (nm ? ' \u00b7 ' + esc(nm) : '') + ': <b class="num">' + esc(s.stock_quantity) + '</b></span>';
+                }).join('') + '</div>'
+              : '';
             return '<tr>' +
               '<td><div class="adm-cell-flex">' + thumbHtml(p) + '<div class="t-name">' + esc(prodName(p)) + '</div></div></td>' +
               '<td class="num-cell">' + esc(p.sku) + '</td>' +
-              '<td>' + stockPill(p) + '</td>' +
+              '<td>' + stockPill(p) + shadeCell + '</td>' +
               '<td class="num-cell">' + (p.low_stock_threshold || 0) + '</td>' +
               '<td><div class="row-actions"><button type="button" class="btn btn-ghost btn-sm" data-adjust="' + esc(p.id) + '">' + I.t('ad_inv_adjust') + '</button></div></td>' +
               '</tr>';
@@ -1552,7 +1952,7 @@
         qa('[data-adjust]').forEach(function (b) {
           b.addEventListener('click', function () {
             var p = products.find(function (x) { return x.id === b.dataset.adjust; });
-            if (p) openAdjustModal(p, function () { drawStock(); renderInventory(host); });
+            if (p) openAdjustModal(p, shadesByProduct[p.id] || [], function () { drawStock(); renderInventory(host); });
           });
         });
       }).catch(function (err) {
@@ -1561,9 +1961,20 @@
     }
   }
 
-  function openAdjustModal(p, onDone) {
+  function openAdjustModal(p, productShades, onDone) {
+    var shadeSelect = productShades.length
+      ? '<div class="field"><label>' + I.t('ad_shade_pick') + '</label>' +
+        '<select class="input" id="adj-shade">' +
+        '<option value="">' + esc(I.t('ad_th_stock')) + '</option>' +
+        productShades.map(function (s) {
+          var nm = I.lang === 'ar' ? (s.shade_name_ar || s.shade_name_en) : (s.shade_name_en || s.shade_name_ar);
+          return '<option value="' + esc(s.id) + '">' + esc(I.t('shade_label')) + ' ' + esc(s.shade_number) + (nm ? ' \u2014 ' + esc(nm) : '') + ' (' + esc(s.stock_quantity) + ')</option>';
+        }).join('') +
+        '</select></div>'
+      : '';
     var m = modal(I.t('ad_inv_adjust') + ' \u2014 ' + prodName(p),
       '<p class="modal-text">' + I.t('ad_th_stock') + ': <b>' + p.stock + '</b></p>' +
+      shadeSelect +
       '<div class="field"><label>' + I.t('ad_inv_new') + '</label>' +
       '<input class="input is-ltr" id="adj-qty" inputmode="numeric" value="' + p.stock + '"></div>' +
       '<div class="field"><label>' + I.t('ad_inv_reason') + '</label>' +
@@ -1572,18 +1983,32 @@
       '<button type="button" class="btn btn-ghost" data-close-x>' + I.t('ad_cancel') + '</button>' +
       '<button type="button" class="btn btn-primary" id="adj-save">' + I.t('ad_save') + '</button>' +
       '</div>');
+    var shadeSel = q('#adj-shade', m.body);
+    if (shadeSel) {
+      shadeSel.addEventListener('change', function () {
+        var s = productShades.find(function (x) { return x.id === shadeSel.value; });
+        q('#adj-qty', m.body).value = s ? s.stock_quantity : p.stock;
+      });
+    }
     m.back.querySelector('[data-close-x]').addEventListener('click', m.close);
     q('#adj-save', m.body).addEventListener('click', function () {
       var newQty = parseInt(q('#adj-qty', m.body).value, 10);
       var note = q('#adj-note', m.body).value.trim();
       if (isNaN(newQty) || newQty < 0) { UI.toast(I.t('ad_inv_err'), 'error'); return; }
       if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
-      var delta = newQty - Number(p.stock);
+      var shadeId = shadeSel && shadeSel.value ? shadeSel.value : null;
+      var current = p.stock;
+      if (shadeId) {
+        var s = productShades.find(function (x) { return x.id === shadeId; });
+        current = s ? Number(s.stock_quantity) : 0;
+      }
+      var delta = newQty - current;
       var btn = this;
       btn.disabled = true;
-      DB.admin.adjustStock(p.id, delta, note).then(function (res) {
+      DB.admin.adjustStock(p.id, delta, note, shadeId).then(function (res) {
         if (res.error) throw res.error;
         cache.products = null;
+        cache.shades = null;
         UI.toast(I.t('ad_inv_adjusted'), 'ok');
         m.close();
         onDone && onDone();
@@ -1638,6 +2063,17 @@
         switchRow('sw-sim', I.t('ad_set_sim'), s.payment_simulation) +
         '<div class="field mt-2" style="max-width:240px"><label>' + I.t('ad_set_shipping') + '</label>' +
         '<input class="input is-ltr" id="st-shipping" inputmode="decimal" value="' + esc(s.shipping_fee) + '"></div>' +
+        '</div>' +
+
+        '<div class="adm-card"><h2>' + I.t('ad_set_ribbon') + '</h2>' +
+        '<p class="hint mb-2">' + I.t('ad_set_ribbon_hint') + '</p>' +
+        switchRow('sw-ribbon', I.t('ad_set_ribbon_enable'), s.promo_ribbon_enabled !== false) +
+        '<div class="adm-form-grid g2 mt-2">' +
+        field(f('ribbon-en'), I.t('ad_set_ribbon_text_en'), s.promo_ribbon_text_en) +
+        field(f('ribbon-ar'), I.t('ad_set_ribbon_text_ar'), s.promo_ribbon_text_ar, 'rtl') +
+        '</div>' +
+        '<div class="field mt-2" style="max-width:240px"><label>' + I.t('ad_set_ribbon_color') + '</label>' +
+        '<input type="color" class="input is-ltr" id="st-ribbon-color" value="' + esc(s.promo_ribbon_color || '#F72585') + '"></div>' +
         '</div>' +
 
         '<div class="adm-card"><h2>' + I.t('ad_set_home') + '</h2>' +
@@ -1698,7 +2134,11 @@
             show_featured: swVal('sw-feat'),
             show_bestsellers: swVal('sw-best'),
             payment_simulation: swVal('sw-sim'),
-            shipping_fee: parseFloat(val(f('shipping'))) || 0
+            shipping_fee: parseFloat(val(f('shipping'))) || 0,
+            promo_ribbon_enabled: swVal('sw-ribbon'),
+            promo_ribbon_text_en: val(f('ribbon-en')),
+            promo_ribbon_text_ar: val(f('ribbon-ar')),
+            promo_ribbon_color: val(f('ribbon-color'))
           }, extra || {})).eq('id', 1);
         };
         var updHomepage = sb.from('homepage_settings').update({
@@ -1852,9 +2292,11 @@
       if (state.preview) {
         var orders = DEMO.loadOrders().length;
         var products = DEMO.products.length;
+        var shades = DEMO.shades.length;
         q('#demo-counts').innerHTML =
           '<div class="metric-grid">' +
           '<div class="metric"><div class="m-label">' + I.t('ad_products') + '</div><div class="m-value">' + products + '</div></div>' +
+          '<div class="metric"><div class="m-label">' + I.t('shades_title') + '</div><div class="m-value">' + shades + '</div></div>' +
           '<div class="metric"><div class="m-label">' + I.t('ad_orders') + '</div><div class="m-value">' + orders + '</div></div>' +
           '<div class="metric"><div class="m-label">' + I.t('ad_customers') + '</div><div class="m-value">' + new Set(DEMO.loadOrders().map(function (o) { return o.phone; })).size + '</div></div>' +
           '</div><p class="hint mt-1">' + I.t('ad_demo_readonly') + '</p>';
@@ -1866,6 +2308,7 @@
         q('#demo-counts').innerHTML =
           '<div class="metric-grid">' +
           metric(I.t('ad_products'), c.products || 0) +
+          metric(I.t('shades_title'), c.shades || 0) +
           metric(I.t('ad_orders'), c.orders || 0) +
           metric(I.t('ad_customers'), c.customers || 0) +
           metric(I.t('ad_set_banners'), c.banners || 0) +

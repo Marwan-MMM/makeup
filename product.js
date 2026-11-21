@@ -2,8 +2,15 @@
    Blush Beauty — product.js
    Product details: gallery, prices with discount display,
    stock-aware quantity selector, add to cart / wishlist,
-   related products. Quantity is capped at available stock
-   and re-validated server-side at order time.
+   related products, and colour shades.
+
+   Shades: one product may expose several colour variations
+   (product_shades). Each shade has independent stock and its own
+   image gallery; selecting a shade swaps the entire gallery to
+   that shade's images, caps the quantity by that shade's stock
+   and stores the shade on the cart line. Products without shades
+   keep the exact previous behaviour. Quantity is re-validated
+   server-side at order time.
    ============================================================ */
 (function () {
   'use strict';
@@ -11,12 +18,19 @@
   var UI = window.UI, DB = window.DB, I = window.I18N;
 
   var product = null;
+  var shades = [];       /* active shades of this product (mapped) */
+  var shade = null;      /* currently selected shade or null */
+  var selectedImg = 0;   /* index inside the active gallery */
   var qty = 1;
-  var selectedImg = 0;
 
   function idFromUrl() {
     var u = new URLSearchParams(window.location.search);
     return u.get('id') || '';
+  }
+
+  function shadeParam() {
+    var u = new URLSearchParams(window.location.search);
+    return u.get('shade');
   }
 
   function render() {
@@ -24,32 +38,113 @@
     if (!id) { notFound(); return; }
 
     DB.getProduct(id).then(function (p) {
-      if (!p) { notFound(); return; }
+      if (!p) { notFound(); return Promise.reject(new Error('not-found')); }
       product = p;
       qty = 1;
       selectedImg = 0;
-      drawPdp();
+      shade = null;
+      UI.registerShareProduct(p); /* for the PDP share button */
       document.title = p.nameEn + ' \u2014 Blush Beauty';
-      return DB.getRelated(p, 4);
+      /* Shades load independently: if the shades migration has not run
+         yet (or the product simply has none) the PDP works unchanged. */
+      return DB.getShades(p.id).catch(function () { return []; });
+    }).then(function (list) {
+      shades = list || [];
+      pickInitialShade();
+      drawPdp();
+      return DB.getRelated(product, 4);
     }).then(function (related) {
       if (!related || !related.length) return;
       var sec = document.getElementById('section-related');
       sec.hidden = false;
       document.getElementById('related-row').innerHTML = related.map(UI.productCard).join('');
     }).catch(function (err) {
+      if (err && err.message === 'not-found') return;
       UI.toast(err.message || I.t('error_generic'), 'error');
       notFound();
     });
   }
 
-  function notFound() {
-    var root = document.getElementById('pdp-root');
-    root.innerHTML =
-      '<div class="empty-state">' +
-      '<div class="glyph">' + UI.icon('box', 22) + '</div>' +
-      '<h2>' + I.t('shop_empty_title') + '</h2>' +
-      '<p>' + I.t('pdp_out_note') + '</p>' +
-      '<a class="btn btn-outline" href="shop.html">' + I.t('continue_shopping') + '</a>' +
+  function pickInitialShade() {
+    if (!shades.length) return;
+    var wanted = shadeParam();
+    if (wanted !== null && wanted !== '') {
+      shade = shades.find(function (s) {
+        return String(s.number) === wanted || s.id === wanted;
+      }) || null;
+    }
+    if (!shade && shades.length === 1) {
+      shade = shades[0]; /* single available shade: select automatically */
+    }
+    if (shade) selectedImg = 0;
+  }
+
+  function hasShades() { return shades.length > 0; }
+
+  /* Images of the active gallery: the selected shade's images when a
+     shade with images is selected; otherwise the product's own images
+     (also the fallback for a shade without images — never another
+     shade's images). */
+  function galleryImages() {
+    var p = product;
+    if (shade && shade.images.length) {
+      return shade.images.map(function (im) { return im.url; }).filter(Boolean);
+    }
+    return p.images || [];
+  }
+
+  function shadeName(s) {
+    return I.lang === 'ar' ? (s.nameAr || s.nameEn) : (s.nameEn || s.nameAr);
+  }
+
+  function shadeLineLabel(s) {
+    var name = shadeName(s);
+    return I.t('shade_numbered', { n: s.number }) + (name ? ' \u2014 ' + name : '');
+  }
+
+  /* Stock label for shaded products follows the selected shade. */
+  function currentStock() {
+    return shade ? shade.stock : (product ? product.stock : 0);
+  }
+
+  function stockLine() {
+    var p = product;
+    if (hasShades() && !shade) {
+      return '<p class="pdp-stock"><span class="stock-dot dot-low"></span>' + UI.esc(I.t('shade_required')) + '</p>';
+    }
+    var stock = currentStock();
+    if (stock <= 0) {
+      return '<p class="pdp-stock is-out"><span class="stock-dot dot-out"></span>' + I.t('out_of_stock') + '</p>';
+    }
+    if (stock <= (shade ? shade.lowThreshold : p.lowThreshold)) {
+      return '<p class="pdp-stock"><span class="stock-dot dot-low"></span>' + I.t('low_stock', { n: stock }) + '</p>';
+    }
+    return '<p class="pdp-stock"><span class="stock-dot dot-ok"></span>' +
+      (hasShades() ? I.t('shade_of_stock', { n: stock }) : I.t('in_stock')) + '</p>';
+  }
+
+  function shadeSectionHtml() {
+    if (!hasShades()) return '';
+    var btns = shades.map(function (s) {
+      var selectable = s.stock > 0;
+      var cls = 'shade-btn' + (shade && shade.id === s.id ? ' active' : '') + (selectable ? '' : ' is-out');
+      return '<button type="button" class="' + cls + '" data-shade-id="' + UI.esc(s.id) + '"' +
+        (selectable ? '' : ' disabled aria-disabled="true"') +
+        ' aria-pressed="' + (shade && shade.id === s.id ? 'true' : 'false') + '"' +
+        ' aria-label="' + UI.esc(shadeLineLabel(s) + (selectable ? '' : ' \u00b7 ' + I.t('shade_unavailable'))) + '">' +
+        '<span class="shade-btn-num num">' + UI.esc(s.number) + '</span>' +
+        (shadeName(s) ? '<span class="shade-btn-name">' + UI.esc(shadeName(s)) + '</span>' : '') +
+        (selectable ? '' : '<span class="shade-btn-out">' + I.t('shade_unavailable') + '</span>') +
+        '</button>';
+    }).join('');
+    var label = shade
+      ? '<p class="shade-selected">' + UI.esc(shadeLineLabel(shade)) +
+        ' \u00b7 <span class="num">' + (shade.stock > 0 ? I.t('shade_of_stock', { n: shade.stock }) : I.t('shade_unavailable')) + '</span></p>'
+      : '';
+    return '<div class="pdp-shades">' +
+      '<p class="overline pdp-shades-title">' + I.t('shades_title') + '</p>' +
+      '<div class="shade-btns">' + btns + '</div>' +
+      label +
       '</div>';
   }
 
@@ -69,14 +164,16 @@
       bc.insertAdjacentHTML('beforeend', '<span class="sep">/</span><span>' + UI.esc(DB.locName(p)) + '</span>');
     }
 
-    var out = p.stock <= 0;
+    var images = galleryImages();
+    var out = hasShades() ? (!shade || shade.stock <= 0) : (p.stock <= 0);
+    var purchasable = !out;
     var wished = UI.Wish.has(p.id);
-    var max = Math.max(1, p.stock);
+    var max = Math.max(1, hasShades() && shade ? shade.stock : p.stock);
 
     var gallery = '' +
       '<div class="pdp-gallery">' +
-      '<div class="pdp-main-img">' + mainImage() + '</div>' +
-      (p.images.length > 1 ? '<div class="pdp-thumbs">' + p.images.map(function (src, i) {
+      '<div class="pdp-main-img">' + mainImage(images) + '</div>' +
+      (images.length > 1 ? '<div class="pdp-thumbs">' + images.map(function (src, i) {
         return '<button type="button" class="pdp-thumb' + (i === selectedImg ? ' active' : '') + '" data-img="' + i + '">' +
           '<img src="' + UI.esc(src) + '" alt="' + UI.esc(DB.locName(p)) + '"></button>';
       }).join('') + '</div>' : '') +
@@ -93,18 +190,22 @@
         '<span class="badge badge-off">' + I.t('off_badge', { p: p.pct }) + '</span>' +
         '<span class="pdp-save">' + I.t('save_amount', { amount: UI.money(p.savings) }) + '</span>' : '') +
       '</div>' +
-      '<p class="pdp-stock' + (out ? ' is-out' : '') + '">' + UI.stockLabel(p) + '</p>' +
+      stockLine() +
       (out ? '<p class="muted small">' + I.t('pdp_out_note') + '</p>' : '') +
+      shadeSectionHtml() +
       '<div class="pdp-actions">' +
-      (out ? '' : UI.qtyStepperHtml(qty, max, 'pdp')) +
-      '<button type="button" class="btn btn-primary" id="pdp-add"' + (out ? ' disabled' : '') + '>' + UI.icon('bag', 16) + I.t('add_to_cart') + '</button>' +
+      (purchasable ? UI.qtyStepperHtml(qty, max, 'pdp') : '') +
+      '<button type="button" class="btn btn-primary" id="pdp-add"' + (purchasable ? '' : ' disabled') + '>' + UI.icon('bag', 16) + I.t('add_to_cart') + '</button>' +
       '<button type="button" class="btn btn-ghost" id="pdp-wish">' + UI.icon(wished ? 'heartFill' : 'heart', 16) +
       '<span id="pdp-wish-label">' + (wished ? I.t('pdp_in_wish') : I.t('pdp_add_wish')) + '</span></button>' +
+      '<button type="button" class="btn btn-ghost" id="pdp-share" data-share-id="' + UI.esc(p.id) + '">' + UI.icon('share', 16) +
+      '<span>' + I.t('share_product') + '</span></button>' +
       '</div>' +
       '<div class="pdp-desc">' + UI.esc(DB.locDesc(p)) + '</div>' +
       '<div class="pdp-attrs">' +
       '<div class="row"><b>' + I.t('sku') + '</b><span class="num">' + UI.esc(p.sku) + '</span></div>' +
-      '<div class="row"><b>' + I.t('pdp_stock') + '</b><span>' + UI.stockLabel(p) + '</span></div>' +
+      '<div class="row"><b>' + I.t('pdp_stock') + '</b><span>' + stockLine() + '</span></div>' +
+      (shade ? '<div class="row"><b>' + I.t('shade_label') + '</b><span>' + UI.esc(shadeLineLabel(shade)) + '</span></div>' : '') +
       '</div>' +
       '</div>';
 
@@ -118,17 +219,18 @@
     sticky.id = 'pdp-sticky';
     sticky.innerHTML =
       '<span class="sticky-price">' + UI.money(p.finalPrice) + '</span>' +
-      '<button type="button" class="btn btn-primary" id="pdp-add-sticky"' + (out ? ' disabled' : '') + '>' + I.t('add_to_cart') + '</button>';
+      '<button type="button" class="btn btn-primary" id="pdp-add-sticky"' + (purchasable ? '' : ' disabled') + '>' + I.t('add_to_cart') + '</button>';
     document.body.appendChild(sticky);
 
     wireGallery();
+    wireShadeButtons();
     wireActions();
   }
 
-  function mainImage() {
+  function mainImage(images) {
     var p = product;
-    if (p.images.length) {
-      return '<img id="pdp-main-src" src="' + UI.esc(p.images[selectedImg]) + '" alt="' + UI.esc(DB.locName(p)) + '">';
+    if (images && images.length) {
+      return '<img id="pdp-main-src" src="' + UI.esc(images[selectedImg] || images[0]) + '" alt="' + UI.esc(DB.locName(p)) + '">';
     }
     return UI.phHtml(DB.locName(p), UI.seedOf(p));
   }
@@ -138,10 +240,29 @@
       b.addEventListener('click', function () {
         selectedImg = Number(b.dataset.img);
         var holder = document.querySelector('.pdp-main-img');
-        holder.innerHTML = mainImage();
+        holder.innerHTML = mainImage(galleryImages());
         document.querySelectorAll('.pdp-thumb').forEach(function (x) {
           x.classList.toggle('active', Number(x.dataset.img) === selectedImg);
         });
+      });
+    });
+  }
+
+  function wireShadeButtons() {
+    document.querySelectorAll('.shade-btn').forEach(function (b) {
+      if (b.disabled) return;
+      b.addEventListener('click', function () {
+        var s = shades.find(function (x) { return x.id === b.dataset.shadeId; });
+        if (!s || s.stock <= 0) return;
+        shade = s;
+        selectedImg = 0;
+        qty = 1;
+        /* Keep the shade in the URL so sharing / reloading preserves
+           the exact selection (PDP share shares the current URL). */
+        var u = new URLSearchParams(window.location.search);
+        u.set('shade', String(s.number));
+        try { history.replaceState(null, '', window.location.pathname + '?' + u.toString()); } catch (e) { /* ignore */ }
+        drawPdp();
       });
     });
   }
@@ -151,12 +272,29 @@
     UI.wireQtySteppers(document.getElementById('pdp-root'), function (v) { qty = v; });
 
     function addToCart() {
-      if (!product || product.stock <= 0) return;
-      var cap = Math.min(qty, product.stock);
-      if (cap < qty) {
-        UI.toast(I.t('cart_max_stock', { n: product.stock }), 'info');
+      if (!product) return;
+      if (hasShades() && !shade) {
+        UI.toast(I.t('shade_required'), 'info');
+        var sec = document.querySelector('.pdp-shades');
+        if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
       }
-      UI.Cart.add(product.id, cap);
+      var stock = hasShades() && shade ? shade.stock : p.stock;
+      if (stock <= 0) return;
+      var cap = Math.min(qty, stock);
+      if (cap < qty) {
+        UI.toast(I.t('cart_max_stock', { n: stock }), 'info');
+      }
+      /* Cart line identity = product id + shade id (null when the
+         product has no shades). The shade snapshot keeps the label and
+         thumbnail correct inside the cart. */
+      UI.Cart.add(p.id, cap, shade ? {
+        id: shade.id,
+        number: shade.number,
+        nameEn: shade.nameEn,
+        nameAr: shade.nameAr,
+        img: shade.images.length ? shade.images[0].url : ''
+      } : null);
       UI.toast(I.t('added_cart'), 'ok');
     }
 

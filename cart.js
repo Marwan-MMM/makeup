@@ -1,8 +1,12 @@
 /* ============================================================
    Blush Beauty — cart.js
-   Guest cart (localStorage), refreshed against live product
-   data: prices come from the database, quantities are capped
-   at available stock, unavailable products are flagged.
+   Guest cart (localStorage), refreshed against live product and
+   shade data: prices come from the database, quantities are
+   capped at the selected shade's available stock (or the product
+   stock for unshaded products), unavailable lines are flagged or
+   removed. A cart line's identity is the product id PLUS the
+   selected shade id: the same product in two shades shows as two
+   lines; the same product+shade merges into one line.
    Order totals are re-validated server-side at checkout.
    ============================================================ */
 (function () {
@@ -10,7 +14,25 @@
 
   var UI = window.UI, DB = window.DB, I = window.I18N;
 
-  var rows = []; /* [{p, qty}] */
+  var rows = []; /* [{p, shade, shadeRow, qty}] */
+
+  function shadeLabel(shadeRow, snapshot) {
+    if (shadeRow) {
+      var name = I.lang === 'ar' ? (shadeRow.nameAr || shadeRow.nameEn) : (shadeRow.nameEn || shadeRow.nameAr);
+      return I.t('shade_numbered', { n: shadeRow.number }) + (name ? ' \u2014 ' + name : '');
+    }
+    if (snapshot) {
+      var sname = I.lang === 'ar' ? (snapshot.nameAr || snapshot.nameEn) : (snapshot.nameEn || snapshot.nameAr);
+      return I.t('shade_numbered', { n: snapshot.number }) + (sname ? ' \u2014 ' + sname : '');
+    }
+    return '';
+  }
+
+  function shadeImageFor(r) {
+    if (r.shadeRow && r.shadeRow.images.length) return r.shadeRow.images[0].url;
+    if (r.shade && r.shade.img) return r.shade.img;
+    return '';
+  }
 
   function render() {
     var items = UI.Cart.items();
@@ -31,28 +53,50 @@
     layout.style.display = '';
     list.innerHTML = '<div class="skel" style="height:110px"></div>';
 
-    DB.getProducts({ ids: items.map(function (i) { return i.id; }), limit: 100, noLimit: true })
-      .then(function (res) {
-        rows = items.map(function (it) {
-          var p = res.items.find(function (x) { return x.id === it.id; });
-          return p ? { p: p, qty: Math.min(it.qty, p.stock) } : null;
-        }).filter(Boolean);
+    var shadedIds = [];
+    items.forEach(function (it) { if (it.shade && shadedIds.indexOf(it.id) === -1) shadedIds.push(it.id); });
 
-        /* remove entries whose products disappeared */
-        if (res.items.length !== items.length) {
-          res.items.forEach(function (p) {
-            var original = items.find(function (x) { return x.id === p.id; });
-            if (original && original.qty > p.stock) {
-              UI.Cart.setQty(p.id, p.stock);
-            }
-          });
-          items.filter(function (it) {
-            return !res.items.find(function (x) { return x.id === it.id; });
-          }).forEach(function (it) { UI.Cart.remove(it.id); });
+    Promise.all([
+      DB.getProducts({ ids: items.map(function (i) { return i.id; }), limit: 100, noLimit: true }),
+      shadedIds.length
+        ? Promise.all(shadedIds.map(function (pid) {
+            return DB.getShades(pid).catch(function () { return []; });
+          }))
+        : Promise.resolve([])
+    ]).then(function (res) {
+      var prods = res[0].items;
+      var shadesByProduct = {};
+      res[1].forEach(function (list2) {
+        if (list2.length) shadesByProduct[list2[0].productId] = list2;
+      });
+
+      rows = items.map(function (it) {
+        var p = prods.find(function (x) { return x.id === it.id; });
+        if (!p) return null;
+        var shadeRow = null;
+        if (it.shade && shadesByProduct[p.id]) {
+          shadeRow = shadesByProduct[p.id].find(function (s) { return s.id === it.shade.id; }) || null;
+          /* shade removed or deactivated server-side: drop the line */
+          if (!shadeRow) return null;
         }
+        var cap = shadeRow ? shadeRow.stock : p.stock;
+        return { p: p, shade: it.shade || null, shadeRow: shadeRow, qty: Math.min(it.qty, cap) };
+      }).filter(Boolean);
 
-        draw();
-      })
+      /* keep the stored cart in sync with what is actually available */
+      var seen = {};
+      items.forEach(function (it) {
+        var r = rows.find(function (x) { return x.p.id === it.id && (x.shade ? x.shade.id : null) === (it.shade ? it.shade.id : null); });
+        var cap = r ? (r.shadeRow ? r.shadeRow.stock : r.p.stock) : 0;
+        if (!r) {
+          UI.Cart.remove(it.id, it.shade ? it.shade.id : null);
+        } else if (it.qty > cap && !seen[it.id + (it.shade ? '::' + it.shade.id : '')]) {
+          UI.Cart.setQty(it.id, cap, it.shade ? it.shade.id : null);
+        }
+      });
+
+      draw();
+    })
       .catch(function (err) {
         UI.toast(err.message || I.t('error_generic'), 'error');
         list.innerHTML = '';
@@ -64,22 +108,31 @@
     var summary = document.getElementById('cart-summary');
     if (!rows.length) { render(); return; }
 
-    list.innerHTML = rows.map(function (r) {
+    list.innerHTML = rows.map(function (r, idx) {
       var p = r.p;
-      var capped = r.qty !== UI.Cart.qtyOf(p.id);
+      var shadeId = r.shade ? r.shade.id : null;
+      var capped = r.qty !== UI.Cart.qtyOf(p.id, shadeId);
+      var stock = r.shadeRow ? r.shadeRow.stock : p.stock;
+      var img = shadeImageFor(r);
+      var thumb = img
+        ? '<img src="' + UI.esc(img) + '" alt="' + UI.esc(DB.locName(p)) + '" loading="lazy">'
+        : UI.mediaHtml(p);
+      var pdpHref = 'product.html?id=' + encodeURIComponent(p.id) +
+        (r.shadeRow ? '&shade=' + encodeURIComponent(r.shadeRow.number) : '');
       return '' +
-        '<div class="cart-row" data-id="' + UI.esc(p.id) + '">' +
-        '<a class="cart-row-media" href="product.html?id=' + encodeURIComponent(p.id) + '">' + UI.mediaHtml(p) + '</a>' +
+        '<div class="cart-row" data-idx="' + idx + '">' +
+        '<a class="cart-row-media" href="' + pdpHref + '">' + thumb + '</a>' +
         '<div class="cart-row-info">' +
-        '<p class="cart-row-name"><a href="product.html?id=' + encodeURIComponent(p.id) + '">' + UI.esc(DB.locName(p)) + '</a></p>' +
+        '<p class="cart-row-name"><a href="' + pdpHref + '">' + UI.esc(DB.locName(p)) + '</a></p>' +
+        (r.shadeRow || r.shade ? '<p class="cart-row-shade">' + UI.icon('palette', 13) + ' ' + UI.esc(shadeLabel(r.shadeRow, r.shade)) + '</p>' : '') +
         '<p class="cart-row-sku">' + I.t('sku') + ' <span class="num">' + UI.esc(p.sku) + '</span></p>' +
         '<p class="cart-row-price">' + UI.money(p.finalPrice) +
         (p.onSale ? ' <span class="price-old">' + UI.money(p.price) + '</span>' : '') + '</p>' +
-        (capped ? '<p class="cart-stock-warn">' + UI.icon('alert', 12) + ' ' + I.t('cart_max_stock', { n: p.stock }) + '</p>' : '') +
-        '<button type="button" class="cart-remove" data-remove="' + UI.esc(p.id) + '">' + UI.icon('trash', 14) + I.t('remove') + '</button>' +
+        (capped ? '<p class="cart-stock-warn">' + UI.icon('alert', 12) + ' ' + I.t('cart_max_stock', { n: stock }) + '</p>' : '') +
+        '<button type="button" class="cart-remove" data-remove-idx="' + idx + '">' + UI.icon('trash', 14) + I.t('remove') + '</button>' +
         '</div>' +
         '<div class="cart-row-side">' +
-        UI.qtyStepperHtml(r.qty, Math.max(1, p.stock), p.id) +
+        UI.qtyStepperHtml(r.qty, Math.max(1, stock), String(idx)) +
         '<span class="cart-row-total">' + UI.money(Math.round(p.finalPrice * r.qty * 100) / 100) + '</span>' +
         '</div>' +
         '</div>';
@@ -109,18 +162,19 @@
     summary.hidden = false;
 
     UI.wireQtySteppers(list, function (v, ctx) {
-      var id = ctx;
-      var row = rows.find(function (r) { return r.p.id === id; });
+      var row = rows[Number(ctx)];
       if (!row) return;
-      UI.Cart.setQty(id, v);
-      /* re-render only quantities and totals */
-      row.qty = Math.min(v, row.p.stock);
+      var shadeId = row.shade ? row.shade.id : null;
+      UI.Cart.setQty(row.p.id, v, shadeId);
+      row.qty = Math.min(v, row.shadeRow ? row.shadeRow.stock : row.p.stock);
       draw();
     });
 
-    list.querySelectorAll('[data-remove]').forEach(function (b) {
+    list.querySelectorAll('[data-remove-idx]').forEach(function (b) {
       b.addEventListener('click', function () {
-        UI.Cart.remove(b.dataset.remove);
+        var row = rows[Number(b.dataset.removeIdx)];
+        if (!row) return;
+        UI.Cart.remove(row.p.id, row.shade ? row.shade.id : null);
         UI.toast(I.t('cart_removed'), 'info');
         render();
       });

@@ -14,10 +14,10 @@
 
 window.BLUSH_CONFIG = {
   // e.g. 'https://xxxxxxxxxxxx.supabase.co'
-  SUPABASE_URL: '',
+  SUPABASE_URL: 'https://aegzuedfznmxdrotmygi.supabase.co',
 
   // e.g. 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' (anon / public key)
-  SUPABASE_ANON_KEY: '',
+  SUPABASE_ANON_KEY: 'sb_publishable_rPWoBwmGglrbcFeaWCnEVw_skgBxlp6',
 
   // Name of the Edge Function used for order creation.
   // If the function is not deployed, the site falls back to the

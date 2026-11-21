@@ -206,6 +206,74 @@
     }
   ];
 
+  /* ---------- Demo product shades ----------
+     Demonstrates the shade system without a backend: each shade is a
+     variation of ONE product with independent stock and its own image
+     gallery. Shade images are tiny inline SVG data URIs (CSP img-src
+     already allows 'data:'), so every shade has a distinct
+     self-contained gallery; real stores upload photography through
+     the admin dashboard instead. */
+  var SHADE_ROMAN = ['I', 'II', 'III', 'IV', 'V'];
+  function shadeImg(hex, hex2, num, variant) {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">' +
+      '<rect width="600" height="800" fill="#F4EFE8"/>' +
+      '<rect x="60" y="110" width="480" height="580" rx="18" fill="' + hex + '"/>' +
+      '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+      '<stop offset="0" stop-color="' + hex2 + '" stop-opacity=".5"/>' +
+      '<stop offset="1" stop-color="#FFFFFF" stop-opacity=".16"/></linearGradient></defs>' +
+      '<rect x="60" y="110" width="480" height="580" rx="18" fill="url(#g)"/>' +
+      '<circle cx="300" cy="400" r="120" fill="#FBF9F6" opacity=".93"/>' +
+      '<text x="300" y="388" font-family="Georgia, serif" font-size="66" font-weight="600" text-anchor="middle" fill="#2C2823">' + num + '</text>' +
+      '<text x="300" y="442" font-family="Georgia, serif" font-size="26" letter-spacing="8" text-anchor="middle" fill="#675F56">' + variant + '</text>' +
+      '</svg>';
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+  function demoShade(id, productId, num, en, ar, stock, active, tones) {
+    var suffix = num + ' \u00b7 ' + en.toUpperCase();
+    return {
+      id: id, product_id: productId, shade_number: num,
+      shade_name_en: en, shade_name_ar: ar,
+      stock_quantity: stock, low_stock_threshold: 4,
+      is_active: active, display_order: num,
+      created_at: daysAgo(20), updated_at: daysAgo(2),
+      images: tones.map(function (t, i) {
+        return {
+          id: id + '-img-' + (i + 1), shade_id: id,
+          url: shadeImg(t[0], t[1], String(num), SHADE_ROMAN[i] || String(i + 1)),
+          alt: en + ' ' + suffix, position: i, created_at: daysAgo(20)
+        };
+      })
+    };
+  }
+
+  var SHADES = [
+    /* Rosewood Velvet Lipstick — 4 shades (12 / 8 / 0 / 15 units) */
+    demoShade('demo-sh-p03-1', 'demo-p03', 1, 'Rosewood', 'روز وود', 12, true,
+      [['#B07D85', '#8A5E67'], ['#C29098', '#9A6870'], ['#D9A6AD', '#B07D85']]),
+    demoShade('demo-sh-p03-2', 'demo-p03', 2, 'Velvet Mahogany', 'ماهوجني مخملي', 8, true,
+      [['#7A4E52', '#5C3A3E'], ['#8F5D60', '#6B4448']]),
+    demoShade('demo-sh-p03-3', 'demo-p03', 3, 'Blush Pink', 'بلاش بينك', 0, true,
+      [['#E8A0B0', '#D07F92'], ['#F0B4C1', '#DA8DA0'], ['#F7CBD5', '#E8A0B0']]),
+    demoShade('demo-sh-p03-4', 'demo-p03', 4, 'Copper Rose', 'روز نحاسي', 15, true,
+      [['#A9625B', '#7E4A44'], ['#C07A6C', '#965A50'], ['#D69381', '#A9625B'], ['#E2A895', '#C07A6C']]),
+
+    /* Velvet Matte Foundation — 3 shades (10 / 8 / 0 units) */
+    demoShade('demo-sh-p01-1', 'demo-p01', 1, 'Nefertiti Beige', 'نفرتيتي بيج', 10, true,
+      [['#D9B08C', '#C39B76'], ['#E3C3A2', '#D0A983']]),
+    demoShade('demo-sh-p01-2', 'demo-p01', 2, 'Warm Ivory', 'عاجي دافئ', 8, true,
+      [['#EBD3B4', '#DCBF9C']]),
+    demoShade('demo-sh-p01-3', 'demo-p01', 3, 'Golden Sand', 'رملي ذهبي', 0, false,
+      [['#C99B62', '#B18551'], ['#D8AC78', '#C1935F']])
+  ];
+
+  function findShades(productId) {
+    return SHADES
+      .filter(function (s) { return s.product_id === productId; })
+      .sort(function (a, b) {
+        return (a.display_order - b.display_order) || (a.shade_number - b.shade_number);
+      });
+  }
+
   var SETTINGS = {
     id: 1,
     brand_name_en: 'Blush Beauty',
@@ -225,7 +293,11 @@
     show_featured: true,
     show_bestsellers: true,
     shipping_fee: 65,
-    payment_simulation: true
+    payment_simulation: true,
+    promo_ribbon_enabled: true,
+    promo_ribbon_text_en: 'Glow, girl, glow! \u2728',
+    promo_ribbon_text_ar: '',
+    promo_ribbon_color: '#F72585'
   };
 
   var HOMEPAGE = {
@@ -358,10 +430,12 @@
     get mode() { return 'demo'; },
     categories: CATEGORIES,
     products: PRODUCTS,
+    shades: SHADES,
     settings: SETTINGS,
     homepage: HOMEPAGE,
     banners: BANNERS,
     findProduct: findProduct,
+    findShades: findShades,
     unitPrice: unitPrice,
     loadOrders: loadOrders,
     saveOrders: function (orders) {
