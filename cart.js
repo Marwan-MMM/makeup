@@ -125,6 +125,7 @@
         '<div class="cart-row-info">' +
         '<p class="cart-row-name"><a href="' + pdpHref + '">' + UI.esc(DB.locName(p)) + '</a></p>' +
         (r.shadeRow || r.shade ? '<p class="cart-row-shade">' + UI.icon('palette', 13) + ' ' + UI.esc(shadeLabel(r.shadeRow, r.shade)) + '</p>' : '') +
+        (p.demo ? '<p class="cart-row-demo">' + UI.icon('info', 12) + ' ' + UI.esc(I.t('demo_item_note')) + '</p>' : '') +
         '<p class="cart-row-sku">' + I.t('sku') + ' <span class="num">' + UI.esc(p.sku) + '</span></p>' +
         '<p class="cart-row-price">' + UI.money(p.finalPrice) +
         (p.onSale ? ' <span class="price-old">' + UI.money(p.price) + '</span>' : '') + '</p>' +

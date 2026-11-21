@@ -103,6 +103,30 @@
     }).join('');
     subtotal = Math.round(subtotal * 100) / 100;
 
+    /* Demo/production separation: preview items added while the site
+       ran in demo mode stay visible (they resolve from the local
+       catalog), but they can never be sent to the live order
+       pipeline, whose product ids are UUIDs. */
+    var hasDemoLines = rows.some(function (r) { return r.p.demo; });
+    if (hasDemoLines && DB.mode === 'supabase') {
+      var note = document.getElementById('co-demo-note');
+      if (!note) {
+        note = document.createElement('p');
+        note.id = 'co-demo-note';
+        note.className = 'co-demo-note';
+        host.insertAdjacentElement('afterend', note);
+      }
+      note.innerHTML = UI.icon('alert', 14) + ' ' + UI.esc(I.t('co_demo_blocked'));
+      note.hidden = false;
+      var blockBtn = document.getElementById('place-order');
+      if (blockBtn) blockBtn.disabled = true;
+    } else {
+      var note2 = document.getElementById('co-demo-note');
+      if (note2) note2.hidden = true;
+      var goBtn = document.getElementById('place-order');
+      if (goBtn) goBtn.disabled = false;
+    }
+
     DB.getSettings().then(function (s) {
       shippingFee = Number(s.shipping_fee) || 0;
       document.getElementById('co-subtotal').textContent = UI.money(subtotal);
@@ -157,6 +181,12 @@
       return;
     }
     if (!rows.length) return;
+    /* Hard guard: demo ids must never reach the UUID-based order
+       pipeline (defense in depth — the button is already disabled). */
+    if (DB.mode === 'supabase' && rows.some(function (r) { return r.p.demo; })) {
+      UI.toast(I.t('co_demo_blocked'), 'error');
+      return;
+    }
 
     var btn = document.getElementById('place-order');
     submitting = true;

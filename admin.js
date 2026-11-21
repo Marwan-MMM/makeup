@@ -2023,9 +2023,36 @@
      Settings + banners
   ============================================================ */
   function renderSettings(host) {
-    loadSettingsAll().then(function (data) {
+    Promise.all([loadSettingsAll(), loadCategories()]).then(function (res) {
+      var data = res[0], catRows = res[1] || [];
       var s = data.settings, hp = data.homepage, banners = data.banners;
       var f = function (id) { return 'st-' + id; };
+
+      /* Homepage category-card images (Makeup / Perfumes): stored in
+         categories.image_url — the same field the homepage cards read —
+         with the photo file in the brand storage bucket. */
+      function catImagePanel(slug) {
+        var labelKey = slug === 'makeup' ? 'ad_cat_makeup' : 'ad_cat_perfumes';
+        var c = catRows.find(function (x) { return x.slug === slug; }) ||
+                catRows.find(function (x) { return String(x.name_en || '').toLowerCase() === slug; });
+        if (!c) {
+          return '<div class="cat-img-panel"><h3>' + I.t(labelKey) + '</h3>' +
+            '<p class="hint">' + I.t('ad_cat_missing') + '</p></div>';
+        }
+        return '<div class="cat-img-panel">' +
+          '<h3>' + I.t(labelKey) + '</h3>' +
+          '<div class="cat-img-preview">' +
+          (c.image_url
+            ? '<img src="' + esc(c.image_url) + '" alt="' + esc(c.name_en || '') + '">'
+            : '<div class="ph ph-tone-0"><span>' + esc(String(c.name_en || 'B').charAt(0)) + '</span></div>') +
+          '</div>' +
+          '<p class="hint">' + (c.image_url ? I.t('ad_cat_current') : I.t('ad_cat_none')) + '</p>' +
+          '<input type="file" class="input" id="cat-img-' + esc(slug) + '" accept="image/jpeg,image/png,image/webp,image/avif">' +
+          '<div class="row-actions mt-1">' +
+          '<button type="button" class="btn btn-primary btn-sm" data-cat-save="' + esc(slug) + '">' + I.t('ad_save') + '</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" data-cat-remove="' + esc(slug) + '"' + (c.image_url ? '' : ' disabled') + '>' + I.t('ad_cat_remove') + '</button>' +
+          '</div></div>';
+      }
 
       host.innerHTML =
         '<div class="adm-card"><h2>' + I.t('ad_set_brand') + '</h2>' +
@@ -2084,6 +2111,13 @@
         field(f('feat-ar'), I.t('ad_set_feat_t_ar'), hp.featured_title_ar, 'rtl') +
         field(f('best-en'), I.t('ad_set_best_t_en'), hp.bestsellers_title_en) +
         field(f('best-ar'), I.t('ad_set_best_t_ar'), hp.bestsellers_title_ar, 'rtl') +
+        '</div></div>' +
+
+        '<div class="adm-card"><h2>' + I.t('ad_cat_images') + '</h2>' +
+        '<p class="hint mb-2">' + I.t('ad_cat_images_hint') + '</p>' +
+        '<div class="adm-form-grid g2">' +
+        catImagePanel('makeup') +
+        catImagePanel('perfumes') +
         '</div></div>' +
 
         '<div class="adm-card"><div class="flex-between mb-2"><h2 style="margin:0">' + I.t('ad_set_banners') + '</h2>' +
@@ -2191,6 +2225,68 @@
               UI.toast(I.t('ad_deleted'), 'ok');
               renderSettings(host);
             }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+          });
+        });
+      });
+
+      /* Category image wiring: save (upload + update) and remove. */
+      function findCatBySlug(slug) {
+        return catRows.find(function (x) { return x.slug === slug; }) ||
+          catRows.find(function (x) { return String(x.name_en || '').toLowerCase() === slug; });
+      }
+      qa('[data-cat-save]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var slug = b.dataset.catSave;
+          var input = document.getElementById('cat-img-' + slug);
+          var file = input && input.files && input.files[0];
+          if (!file) { UI.toast(I.t('ad_cat_choose'), 'info'); return; }
+          if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+          var cat = findCatBySlug(slug);
+          if (!cat) { UI.toast(I.t('ad_cat_missing'), 'error'); return; }
+          b.disabled = true;
+          var oldUrl = cat.image_url || '';
+          DB.admin.uploadImage('brand', 'categories', file).then(function (url) {
+            return sb.from('categories').update({ image_url: url }).eq('id', cat.id).then(function (r) {
+              if (r.error) throw r.error;
+              return url;
+            });
+          }).then(function () {
+            /* old file deleted only after the new URL is live */
+            if (oldUrl) DB.admin.deleteImage(oldUrl).catch(function () { /* non-fatal */ });
+            cache.categories = null;
+            UI.toast(I.t('ad_cat_saved'), 'ok');
+            renderSettings(host);
+          }).catch(function (err) {
+            b.disabled = false;
+            UI.toast(err.message || I.t('error_generic'), 'error');
+          });
+        });
+      });
+      qa('[data-cat-remove]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var slug = b.dataset.catRemove;
+          if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+          var cat = findCatBySlug(slug);
+          if (!cat || !cat.image_url) return;
+          UI.confirm({
+            title: I.t('ad_cat_remove'),
+            text: I.t('ad_cat_remove_hint'),
+            okLabel: I.t('ad_cat_remove'),
+            danger: true
+          }).then(function (ok) {
+            if (!ok) return;
+            var oldUrl = cat.image_url;
+            b.disabled = true;
+            sb.from('categories').update({ image_url: null }).eq('id', cat.id).then(function (r) {
+              if (r.error) throw r.error;
+              DB.admin.deleteImage(oldUrl).catch(function () { /* non-fatal */ });
+              cache.categories = null;
+              UI.toast(I.t('ad_cat_removed'), 'ok');
+              renderSettings(host);
+            }).catch(function (err) {
+              b.disabled = false;
+              UI.toast(err.message || I.t('error_generic'), 'error');
+            });
           });
         });
       });
