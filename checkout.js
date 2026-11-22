@@ -87,7 +87,10 @@
     var host = document.getElementById('co-items');
     var subtotal = 0;
     host.innerHTML = rows.map(function (r) {
-      subtotal += r.p.finalPrice * r.qty;
+      /* Individual shade pricing: the line sells at the shade's own
+         price when one is set; otherwise the product's discount logic. */
+      var unit = DB.shadeUnitPrice(r.p, r.shadeRow);
+      subtotal += unit * r.qty;
       var img = (r.shadeRow && r.shadeRow.images.length) ? r.shadeRow.images[0].url
         : (r.shade && r.shade.img ? r.shade.img : '');
       var thumb = img
@@ -98,7 +101,7 @@
         '<span class="nm">' + UI.esc(DB.locName(r.p)) + ' <span class="q num">\u00d7 ' + r.qty + '</span>' +
         (r.shadeRow ? '<span class="summary-shade">' + UI.esc(shadeLabelOf(r)) + '</span>' : '') +
         '</span>' +
-        '<span class="pr">' + UI.money(Math.round(r.p.finalPrice * r.qty * 100) / 100) + '</span>' +
+        '<span class="pr">' + UI.money(Math.round(unit * r.qty * 100) / 100) + '</span>' +
         '</div>';
     }).join('');
     subtotal = Math.round(subtotal * 100) / 100;

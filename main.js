@@ -413,21 +413,41 @@
        mapped by the data layer). Each chip deep-links to the product
        page with that shade preselected (?shade=N) — the PDP stays the
        authoritative selection surface with per-shade stock and gallery.
-       Out-of-stock shades render dimmed but still navigate. Products
-       without shades keep their exact previous appearance. */
+       With individual shade pricing, the chip shows the shade's selling
+       price only when the shades' prices actually differ. Out-of-stock
+       shades render dimmed but still navigate. Products without shades
+       keep their exact previous appearance. */
     var shadesHtml = '';
+    var showChipPrices = !!(p.shades && p.shades.length && DB.shadePricesDiffer(p));
     if (p.shades && p.shades.length) {
       shadesHtml = '<div class="card-shades" aria-label="' + esc(I.t('shades_title')) + '">' +
         p.shades.map(function (s) {
           var label = I.t('shade_numbered', { n: s.number });
           var nm = I18N.lang === 'ar' ? (s.nameAr || s.nameEn) : (s.nameEn || s.nameAr);
+          var full = nm ? (label + (nm ? ' \u2014 ' + nm : '')) : label;
+          if (showChipPrices) full += ' \u00b7 ' + money(DB.shadeUnitPrice(p, s));
           return '<a class="shade-chip' + (s.stock <= 0 ? ' is-out' : '') + '" href="product.html?id=' +
             encodeURIComponent(p.id) + '&shade=' + encodeURIComponent(s.number) + '"' +
-            ' title="' + esc(nm ? (label + (nm ? ' \u2014 ' + nm : '')) : label) + '"' +
-            ' aria-label="' + esc(nm ? (label + (nm ? ' \u2014 ' + nm : '')) : label) + '">' +
-            '<span class="num">' + esc(s.number) + '</span></a>';
+            ' title="' + esc(full) + '"' +
+            ' aria-label="' + esc(full) + '">' +
+            '<span class="num">' + esc(s.number) + '</span>' +
+            (showChipPrices ? '<span class="shade-chip-price num">' + esc(money(DB.shadeUnitPrice(p, s))) + '</span>' : '') +
+            '</a>';
         }).join('') +
         '</div>';
+    }
+
+    /* Card price: with individual shade pricing the displayed price is
+       the LOWEST shade selling price, prefixed "from"; otherwise the
+       existing product price / live discount exactly as before. */
+    var priceLine;
+    if (showChipPrices) {
+      var minPrice = Math.min.apply(null, p.shades.map(function (s) { return DB.shadeUnitPrice(p, s); }));
+      priceLine = '<span class="price-from">' + esc(I.t('from_price')) + '</span>' +
+        '<span class="price-now">' + money(minPrice) + '</span>';
+    } else {
+      priceLine = '<span class="price-now">' + money(p.finalPrice) + '</span>' +
+        (p.onSale ? '<span class="price-old">' + money(p.price) + '</span>' : '');
     }
 
     return '' +
@@ -446,8 +466,7 @@
       '<p class="card-cat">' + esc(catLabel(p)) + '</p>' +
       '<h3 class="card-name"><a href="product.html?id=' + encodeURIComponent(p.id) + '">' + esc(DB.locName(p)) + '</a></h3>' +
       '<div class="card-prices">' +
-      '<span class="price-now">' + money(p.finalPrice) + '</span>' +
-      (p.onSale ? '<span class="price-old">' + money(p.price) + '</span>' : '') +
+      priceLine +
       '</div>' +
       shadesHtml +
       '<p class="card-stock">' + stockLabel(p) + '</p>' +

@@ -113,6 +113,10 @@
       var shadeId = r.shade ? r.shade.id : null;
       var capped = r.qty !== UI.Cart.qtyOf(p.id, shadeId);
       var stock = r.shadeRow ? r.shadeRow.stock : p.stock;
+      /* Individual shade pricing: the line sells at the shade's own
+         price when one is set; otherwise the product's discount logic. */
+      var lineUnit = DB.shadeUnitPrice(p, r.shadeRow);
+      var lineOverride = DB.shadePriceOverride(p, r.shadeRow);
       var img = shadeImageFor(r);
       var thumb = img
         ? '<img src="' + UI.esc(img) + '" alt="' + UI.esc(DB.locName(p)) + '" loading="lazy">'
@@ -126,14 +130,14 @@
         '<p class="cart-row-name"><a href="' + pdpHref + '">' + UI.esc(DB.locName(p)) + '</a></p>' +
         (r.shadeRow || r.shade ? '<p class="cart-row-shade">' + UI.icon('palette', 13) + ' ' + UI.esc(shadeLabel(r.shadeRow, r.shade)) + '</p>' : '') +
         (p.demo ? '<p class="cart-row-demo">' + UI.icon('info', 12) + ' ' + UI.esc(I.t('demo_item_note')) + '</p>' : '') +
-        '<p class="cart-row-price">' + UI.money(p.finalPrice) +
-        (p.onSale ? ' <span class="price-old">' + UI.money(p.price) + '</span>' : '') + '</p>' +
+        '<p class="cart-row-price">' + UI.money(lineUnit) +
+        (p.onSale && !lineOverride ? ' <span class="price-old">' + UI.money(p.price) + '</span>' : '') + '</p>' +
         (capped ? '<p class="cart-stock-warn">' + UI.icon('alert', 12) + ' ' + I.t('cart_max_stock', { n: stock }) + '</p>' : '') +
         '<button type="button" class="cart-remove" data-remove-idx="' + idx + '">' + UI.icon('trash', 14) + I.t('remove') + '</button>' +
         '</div>' +
         '<div class="cart-row-side">' +
         UI.qtyStepperHtml(r.qty, Math.max(1, stock), String(idx)) +
-        '<span class="cart-row-total">' + UI.money(Math.round(p.finalPrice * r.qty * 100) / 100) + '</span>' +
+        '<span class="cart-row-total">' + UI.money(Math.round(lineUnit * r.qty * 100) / 100) + '</span>' +
         '</div>' +
         '</div>';
     }).join('');
@@ -141,8 +145,13 @@
     /* totals */
     var subtotal = 0, savings = 0;
     rows.forEach(function (r) {
-      subtotal += r.p.finalPrice * r.qty;
-      if (r.p.onSale) savings += (r.p.price - r.p.finalPrice) * r.qty;
+      var unit = DB.shadeUnitPrice(r.p, r.shadeRow);
+      subtotal += unit * r.qty;
+      /* Individual shade prices are the selling price — the product
+         discount does not stack on them, so no savings are shown. */
+      if (r.p.onSale && !DB.shadePriceOverride(r.p, r.shadeRow)) {
+        savings += (r.p.price - r.p.finalPrice) * r.qty;
+      }
     });
     DB.getSettings().then(function (s) {
       var shipping = Number(s.shipping_fee) || 0;

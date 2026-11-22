@@ -601,6 +601,7 @@
       '<option value="all">' + I.t('ad_all') + '</option>' +
       '<option value="active">' + I.t('ad_f_active') + '</option>' +
       '<option value="inactive">' + I.t('ad_f_inactive') + '</option>' +
+      '<option value="flash">' + I.t('ad_flash_short') + '</option>' +
       '<option value="low">' + I.t('ad_f_low') + '</option>' +
       '<option value="out">' + I.t('ad_f_out') + '</option>' +
       '</select>' +
@@ -636,6 +637,7 @@
           if (prodUi.cat !== 'all' && p.category_id !== prodUi.cat && (p.sub && p.sub.parent_id) !== prodUi.cat) return false;
           if (prodUi.status === 'active' && !p.is_active) return false;
           if (prodUi.status === 'inactive' && p.is_active) return false;
+          if (prodUi.status === 'flash' && !p.is_flash_sale) return false;
           if (prodUi.status === 'low' && !(p.stock > 0 && p.stock <= (p.low_stock_threshold || 5))) return false;
           if (prodUi.status === 'out' && Number(p.stock) !== 0) return false;
           return true;
@@ -662,7 +664,8 @@
               '<td>' + stockPill(p) + '</td>' +
               '<td>' + (p.is_active ? pill(I.t('ad_f_active'), 'pill-ok') : pill(I.t('ad_f_inactive'), '')) +
               (p.is_featured ? ' ' + pill(I.t('ad_is_featured'), 'pill-info') : '') +
-              (p.is_bestseller ? ' ' + pill(I.t('ad_is_bestseller'), 'pill-info') : '') + '</td>' +
+              (p.is_bestseller ? ' ' + pill(I.t('ad_is_bestseller'), 'pill-info') : '') +
+              (p.is_flash_sale ? ' ' + pill(I.t('ad_flash_short'), 'pill-info') : '') + '</td>' +
               '<td><div class="row-actions">' +
               '<button type="button" class="icon-sm" data-edit="' + esc(p.id) + '" aria-label="' + I.t('ad_edit') + '">' + UI.icon('edit', 15) + '</button>' +
               '<button type="button" class="icon-sm" data-del="' + esc(p.id) + '" aria-label="' + I.t('ad_delete') + '">' + UI.icon('trash', 15) + '</button>' +
@@ -724,6 +727,8 @@
       shade_name_ar: row.shade_name_ar || '',
       stock_quantity: Number(row.stock_quantity) || 0,
       low_stock_threshold: Number(row.low_stock_threshold) || 5,
+      /* null = inherit the main product price */
+      price: (row.price === null || row.price === undefined || row.price === '') ? null : Number(row.price),
       is_active: row.is_active !== false,
       display_order: Number(row.display_order) || 0,
       images: (row.images || []).slice().sort(function (a, b) {
@@ -789,7 +794,7 @@
       sku: '', name_en: '', name_ar: '', description_en: '', description_ar: '',
       category_id: '', subcategory_id: null, price: '', discount_price: null,
       discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 0, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: false,
+      stock: 0, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false,
       images: []
     };
 
@@ -831,6 +836,7 @@
         '<div class="field"><label>' + I.t('ad_stock') + '</label><input class="input is-ltr" id="f-stock" inputmode="numeric" value="' + esc(p.stock) + '"></div>' +
         '<div class="field"><label>' + I.t('ad_low_threshold') + '</label><input class="input is-ltr" id="f-threshold" inputmode="numeric" value="' + esc(p.low_stock_threshold) + '"></div>' +
         '</div>' +
+        '<p class="hint" id="stock-shades-hint" style="display:none">' + I.t('ad_stock_shades_hint') + '</p>' +
 
         '<div class="field checkbox-row"><input type="checkbox" id="f-disc"' + (p.discount_active ? ' checked' : '') + '> <label for="f-disc" style="margin:0">' + I.t('ad_discount_on') + '</label></div>' +
         '<div id="disc-fields" class="adm-form-grid g3" style="' + (p.discount_active ? '' : 'display:none') + '">' +
@@ -843,6 +849,7 @@
         '<label class="checkbox-row"><input type="checkbox" id="f-active"' + (p.is_active ? ' checked' : '') + '> <span>' + I.t('ad_is_active') + '</span></label>' +
         '<label class="checkbox-row"><input type="checkbox" id="f-featured"' + (p.is_featured ? ' checked' : '') + '> <span>' + I.t('ad_is_featured') + '</span></label>' +
         '<label class="checkbox-row"><input type="checkbox" id="f-best"' + (p.is_bestseller ? ' checked' : '') + '> <span>' + I.t('ad_is_bestseller') + '</span></label>' +
+        '<label class="checkbox-row"><input type="checkbox" id="f-flash"' + (p.is_flash_sale ? ' checked' : '') + '> <span>' + I.t('ad_flash_sale') + '</span></label>' +
 
         '<div class="adm-section-title">' + I.t('ad_images') + '</div>' +
         '<p class="hint">' + I.t('ad_img_hint') + '</p>' +
@@ -851,6 +858,8 @@
         '<div class="img-manager" id="img-list"></div>' +
 
         '<div class="adm-section-title">' + I.t('ad_shades') + '</div>' +
+        '<label class="checkbox-row"><input type="checkbox" id="f-shade-pricing"> <span>' + I.t('ad_shade_pricing') + '</span></label>' +
+        '<p class="hint">' + I.t('ad_shade_pricing_hint') + '</p>' +
         '<p class="hint">' + I.t('ad_shades_hint') + '</p>' +
         '<div id="shade-list" class="mt-1"></div>' +
         '<button type="button" class="btn btn-ghost btn-sm mt-1" id="shade-add">' + UI.icon('plus', 14) + I.t('ad_add_shade') + '</button>' +
@@ -966,8 +975,11 @@
       });
 
       function drawShades() {
+        var pricingToggle = q('#f-shade-pricing', m.body);
+        var pricingOn = !!(pricingToggle && pricingToggle.checked);
         if (!shades.length) {
           shadeHost.innerHTML = '<p class="hint">' + I.t('ad_shade_none') + '</p>';
+          refreshStockField();
           return;
         }
         shadeHost.innerHTML = shades.map(function (sh, sIdx) {
@@ -999,6 +1011,8 @@
             '<div class="adm-form-grid g4">' +
             '<div class="field"><label>' + I.t('ad_shade_number') + '</label><input class="input is-ltr" data-s-field="shade_number" data-s-idx="' + sIdx + '" inputmode="numeric" value="' + esc(sh.shade_number) + '"' + dis + '></div>' +
             '<div class="field"><label>' + I.t('ad_shade_stock') + '</label><input class="input is-ltr" data-s-field="stock_quantity" data-s-idx="' + sIdx + '" inputmode="numeric" value="' + esc(sh.stock_quantity) + '"' + dis + '></div>' +
+            '<div class="field"><label>' + I.t('ad_shade_threshold') + '</label><input class="input is-ltr" data-s-field="low_stock_threshold" data-s-idx="' + sIdx + '" inputmode="numeric" value="' + esc(sh.low_stock_threshold) + '"' + dis + '></div>' +
+            (pricingOn ? '<div class="field"><label>' + I.t('ad_shade_price') + '</label><input class="input is-ltr" data-s-field="price" data-s-idx="' + sIdx + '" inputmode="decimal" placeholder="\u2014" value="' + esc(sh.price === null || sh.price === undefined ? '' : sh.price) + '"' + dis + '></div>' : '') +
             '<div class="field"><label>' + I.t('ad_shade_name_en') + '</label><input class="input" data-s-field="shade_name_en" data-s-idx="' + sIdx + '" value="' + esc(sh.shade_name_en) + '"' + dis + '></div>' +
             '<div class="field"><label>' + I.t('ad_shade_name_ar') + '</label><input class="input" dir="rtl" data-s-field="shade_name_ar" data-s-idx="' + sIdx + '" value="' + esc(sh.shade_name_ar) + '"' + dis + '></div>' +
             '</div>' +
@@ -1064,6 +1078,21 @@
         if (f === 'is_active') sh.is_active = fieldEl.checked;
         else if (f === 'shade_number') sh.shade_number = parseInt(fieldEl.value, 10) || 1;
         else if (f === 'stock_quantity') sh.stock_quantity = Math.max(0, parseInt(fieldEl.value, 10) || 0);
+        else if (f === 'low_stock_threshold') sh.low_stock_threshold = Math.max(0, parseInt(fieldEl.value, 10) || 0);
+        else if (f === 'price') {
+          /* Individual shade price: empty = inherit the main product
+             price (null). Numeric and non-negative; anything else is
+             flagged for the save validation. */
+          var raw = fieldEl.value.trim();
+          if (raw === '') {
+            sh.price = null;
+            sh._priceInvalid = false;
+          } else {
+            var pv = parseFloat(raw);
+            sh._priceInvalid = isNaN(pv) || pv < 0;
+            sh.price = sh._priceInvalid ? null : pv;
+          }
+        }
         else sh[f] = fieldEl.value;
       });
 
@@ -1072,9 +1101,36 @@
         var nextNum = shades.reduce(function (m2, s) { return Math.max(m2, s.shade_number); }, 0) + 1;
         shades.push(mapShadeRow({ shade_number: nextNum, is_active: true, stock_quantity: 0, images: [] }));
         drawShades();
+        refreshStockField();
       });
 
+      /* Individual shade pricing toggle: shows/hides the per-shade
+         price fields. State on save decides whether prices persist
+         (disabled = every shade inherits the main product price). */
+      q('#f-shade-pricing', m.body).addEventListener('change', function () {
+        drawShades();
+      });
+
+      /* Main stock vs shade stock: while shades exist, inventory is
+         managed per shade — the main field is disabled and never saved. */
+      function refreshStockField() {
+        var stockEl = q('#f-stock', m.body);
+        var hint = q('#stock-shades-hint', m.body);
+        var hasSh = shades.length > 0;
+        if (stockEl) stockEl.disabled = hasSh;
+        if (hint) hint.style.display = hasSh ? '' : 'none';
+      }
+
+      /* Init the pricing toggle from the loaded shades: individual
+         pricing is "on" exactly when at least one shade carries its
+         own price (single source of truth — no duplicated flag). */
+      (function initPricingToggle() {
+        var t = q('#f-shade-pricing', m.body);
+        if (t) t.checked = shades.some(function (s) { return s.price !== null && s.price !== undefined; });
+      })();
+
       drawShades();
+      refreshStockField();
 
       function moveShade(idx, dir) {
         if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
@@ -1100,6 +1156,7 @@
           if (sh.id) deletedShadeIds.push(sh.id);
           shades.splice(idx, 1);
           drawShades();
+          refreshStockField();
         });
       }
 
@@ -1171,12 +1228,19 @@
           /* insert/update in display order */
           return shades.reduce(function (chain, sh, idx) {
             return chain.then(function () {
+              var pt = q('#f-shade-pricing', m.body);
+              var pricingOff = !(pt && pt.checked);
               var payload = {
                 shade_number: sh.shade_number,
                 shade_name_en: sh.shade_name_en.trim(),
                 /* English fallback when the Arabic shade name is empty */
                 shade_name_ar: sh.shade_name_ar.trim() || sh.shade_name_en.trim(),
                 stock_quantity: sh.stock_quantity,
+                low_stock_threshold: sh.low_stock_threshold,
+                /* Individual shade price; null = inherit main price.
+                   With the pricing toggle OFF every shade is saved
+                   without its own price, so all shades inherit. */
+                price: pricingOff ? null : (sh.price === undefined ? null : sh.price),
                 is_active: sh.is_active,
                 display_order: idx
               };
@@ -1237,8 +1301,12 @@
           var dp = parseFloat(q('#f-disc-price', m.body).value);
           if (isNaN(dp) || dp < 0 || dp >= price) errs.push(I.t('ad_err_disc'));
         }
-        var stock = parseInt(q('#f-stock', m.body).value, 10);
-        if (isNaN(stock) || stock < 0) errs.push(I.t('ad_err_stock'));
+        /* Main stock: managed per shade while shades exist — the main
+           field is disabled and its value is NOT validated or saved. */
+        if (!shades.length) {
+          var stock = parseInt(q('#f-stock', m.body).value, 10);
+          if (isNaN(stock) || stock < 0) errs.push(I.t('ad_err_stock'));
+        }
         if (!q('#f-cat', m.body).value) errs.push(I.t('ad_err_category'));
         /* shades: unique positive numbers, stock >= 0 */
         var seenNums = {};
@@ -1249,6 +1317,10 @@
           seenNums[sh.shade_number] = true;
           if (isNaN(sh.stock_quantity) || sh.stock_quantity === null || sh.stock_quantity < 0) {
             if (errs.indexOf(I.t('ad_err_shade_stock')) === -1) errs.push(I.t('ad_err_shade_stock'));
+          }
+          /* individual shade prices must be numeric and non-negative */
+          if (sh._priceInvalid) {
+            if (errs.indexOf(I.t('ad_err_price')) === -1) errs.push(I.t('ad_err_price'));
           }
         });
         return errs;
@@ -1277,12 +1349,20 @@
           discount_price: q('#f-disc', m.body).checked ? parseFloat(q('#f-disc-price', m.body).value) : null,
           discount_starts_at: q('#f-disc', m.body).checked ? localToIso(q('#f-disc-start', m.body).value) : null,
           discount_ends_at: q('#f-disc', m.body).checked ? localToIso(q('#f-disc-end', m.body).value) : null,
-          stock: parseInt(q('#f-stock', m.body).value, 10),
           low_stock_threshold: parseInt(q('#f-threshold', m.body).value, 10) || 0,
           is_active: q('#f-active', m.body).checked,
           is_featured: q('#f-featured', m.body).checked,
-          is_bestseller: q('#f-best', m.body).checked
+          is_bestseller: q('#f-best', m.body).checked,
+          is_flash_sale: q('#f-flash', m.body).checked
         };
+        /* Main stock is managed per shade while shades exist: the field
+           is disabled and its value is deliberately NOT sent, so shade
+           inventory can never be overwritten by the product form. When
+           the last shade is deleted, the admin re-enables the field and
+           sets stock explicitly (no silent inventory changes). */
+        if (!shades.length) {
+          payload.stock = parseInt(q('#f-stock', m.body).value, 10) || 0;
+        }
 
         /* Set once the product row itself is in the database. Every
            later Save UPDATES that row — a retry after a failed image or

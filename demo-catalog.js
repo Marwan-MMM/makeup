@@ -48,7 +48,7 @@
       description_en: 'A weightless liquid foundation with a soft-matte velvet finish. Blurs pores, evens tone and holds for up to 12 hours without caking. Shade: Nefertiti Beige, for light-to-medium skin with warm undertones.',
       description_ar: 'فاونديشن سائل خفيف الوزن بلمسة مخملية غير لامعة. يخفي المسام، يوحد لون البشرة ويثبت حتى 12 ساعة دون تكتل. الدرجة: نفرتيتي بيج، للبشرة الفاتحة إلى المتوسطة بتحت دافئ.',
       price: 850, discount_price: 680, discount_active: true, discount_starts_at: null, discount_ends_at: daysAhead(21),
-      stock: 24, low_stock_threshold: 5, is_active: true, is_featured: true, is_bestseller: false, sales_count: 34,
+      stock: 24, low_stock_threshold: 5, is_active: true, is_featured: true, is_bestseller: false, is_flash_sale: true, sales_count: 34,
       images: [], created_at: daysAgo(26)
     },
     {
@@ -57,7 +57,7 @@
       description_en: 'A buildable, crease-resistant concealer that brightens under-eyes and covers redness with a skin-like finish. Enriched with vitamin E. Shade: Warm Sand.',
       description_ar: 'كونسيلر قابل للترطيب بمستويات متعددة، مقاوم للتجاعيد، يفتح منطقة العين ويغطي الاحمرار بلمسة طبيعية. غني بفيتامين E. الدرجة: وورم ساند.',
       price: 420, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 31, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: true, sales_count: 41,
+      stock: 31, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: true, is_flash_sale: false, sales_count: 41,
       images: [], created_at: daysAgo(24)
     },
     {
@@ -66,7 +66,7 @@
       description_en: 'A creamy, full-coverage lipstick in a dusty rosewood shade. One swipe delivers rich pigment with a blurred velvet effect that stays comfortable on the lips for hours.',
       description_ar: 'أحمر شفاه كريمي بتغطية كاملة بلون روز وود هادئ. طبقة واحدة تكفي لتغطية غنية بلمسة مخملية ناعمة تدوم لساعات على الشفاه.',
       price: 380, discount_price: 290, discount_active: true, discount_starts_at: null, discount_ends_at: daysAhead(21),
-      stock: 40, low_stock_threshold: 6, is_active: true, is_featured: false, is_bestseller: true, sales_count: 67,
+      stock: 40, low_stock_threshold: 6, is_active: true, is_featured: false, is_bestseller: true, is_flash_sale: true, sales_count: 67,
       images: [], created_at: daysAgo(22)
     },
     {
@@ -75,7 +75,7 @@
       description_en: 'A non-sticky, high-shine gloss with a sheer rose tint and a subtle plumping effect. Wear it alone or layered over any lipstick.',
       description_ar: 'ملمع غير لزج بدرجة لمعان عالية ولمسة وردية شفافة وأثر تكثير خفيف. يُستخدم وحده أو فوق أي أحمر شفاه.',
       price: 320, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 27, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: false, sales_count: 22,
+      stock: 27, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false, sales_count: 22,
       images: [], created_at: daysAgo(21)
     },
     {
@@ -84,7 +84,7 @@
       description_en: 'A lifting mascara with an hourglass brush that catches every lash for dramatic curve and volume. Smudge-proof and easy to remove with warm water.',
       description_ar: 'مسكارا ترفع الرموش بفرشاة على شكل ساعة رملية تلتقط كل رمشة لمنح انحناء وحجم ملحوظين. مقاومة للبقع وسهلة الإزالة بالماء الدافئ.',
       price: 450, discount_price: 360, discount_active: true, discount_starts_at: null, discount_ends_at: daysAhead(10),
-      stock: 3, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: true, sales_count: 58,
+      stock: 3, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: true, is_flash_sale: false, sales_count: 58,
       images: [], created_at: daysAgo(20)
     },
     {
@@ -93,7 +93,7 @@
       description_en: 'Twelve buttery-soft shades from warm champagne to deep espresso. Matte, satin and foil finishes that blend effortlessly for everyday and evening looks.',
       description_ar: 'اثنتا عشرة درجة ناعمة كالزبدة من الشامبين الدافئ إلى الإسبريسو الغامق. تشطيبات مات وساتان ولامعة تدمج بسهولة لإطلالات النهار والسهرات.',
       price: 980, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 15, low_stock_threshold: 4, is_active: true, is_featured: true, is_bestseller: false, sales_count: 19,
+      stock: 15, low_stock_threshold: 4, is_active: true, is_featured: true, is_bestseller: false, is_flash_sale: false, sales_count: 19,
       images: [], created_at: daysAgo(18)
     },
     {
@@ -102,7 +102,7 @@
       description_en: 'A finely-milled powder blush in a soft desert-rose pink. Sheer-to-buildable payoff that melts into skin for a natural, healthy flush.',
       description_ar: 'بودرة بلاشر ناعمة بطبقات بميلان وردي هادئ. تغطية خفيفة قابلة للزيادة تندمج مع البشرة لإطلالة طبيعية صحية.',
       price: 390, discount_price: 310, discount_active: true, discount_starts_at: null, discount_ends_at: daysAhead(21),
-      stock: 22, low_stock_threshold: 5, is_active: true, is_featured: true, is_bestseller: false, sales_count: 25,
+      stock: 22, low_stock_threshold: 5, is_active: true, is_featured: true, is_bestseller: false, is_flash_sale: false, sales_count: 25,
       images: [], created_at: daysAgo(17)
     },
     {
@@ -111,7 +111,7 @@
       description_en: 'A champagne-gold highlighter with pearl pigments that reflects light softly \u2014 glow without glitter. Suitable for cheekbones, brow bones and collarbones.',
       description_ar: 'هايلايتر بلون الشامبين الذهبي بحبيبات لؤلؤية تعكس الضوء بنعومة \u2014 إشراقة دون لمعان مبالغ. مناسب للوجنتين وحاجبي الصدر.',
       price: 430, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 18, low_stock_threshold: 4, is_active: true, is_featured: false, is_bestseller: true, sales_count: 37,
+      stock: 18, low_stock_threshold: 4, is_active: true, is_featured: false, is_bestseller: true, is_flash_sale: false, sales_count: 37,
       images: [], created_at: daysAgo(16)
     },
     {
@@ -120,7 +120,7 @@
       description_en: 'An invisible, silky loose powder that sets makeup, blurs shine and extends wear. Universally translucent \u2014 never ashy on deeper tones.',
       description_ar: 'بودرة سائلة حريرية شفافة تثبت المكياج، تخفي اللمعة وتطيل ثبات الإطلالة. شفافة تناسب كل درجات البشرة دون رمادية.',
       price: 520, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 26, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: false, sales_count: 16,
+      stock: 26, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false, sales_count: 16,
       images: [], created_at: daysAgo(15)
     },
     {
@@ -129,7 +129,7 @@
       description_en: 'A felt-tip liner with a flexible brush point for hairline-fine or bold lines. Waterproof, fast-drying, and stays put for 16 hours.',
       description_ar: 'آيلاينر بأطرحة مرنة تسمح بخطوط دقيقة أو جسورة. مقاوم للماء، يجف سريعاً، ويثبت حتى 16 ساعة.',
       price: 280, discount_price: 225, discount_active: true, discount_starts_at: daysAgo(30), discount_ends_at: daysAgo(3),
-      stock: 33, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: false, sales_count: 20,
+      stock: 33, low_stock_threshold: 5, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false, sales_count: 20,
       images: [], created_at: daysAgo(14)
     },
     {
@@ -138,7 +138,7 @@
       description_en: 'Twelve vegan-fibre brushes covering face and eyes, with a champagne travel case. Soft, dense bristles that do not shed and blend without streaks.',
       description_ar: 'اثنتا عشرة فرشاة بألياف نباتية للوجه والعين مع حافظة سفر بلون الشامبين. ألياف ناعمة كثيفة لا تتساقط وتدمج دون خطوط.',
       price: 1200, discount_price: 940, discount_active: true, discount_starts_at: null, discount_ends_at: daysAhead(14),
-      stock: 9, low_stock_threshold: 3, is_active: true, is_featured: false, is_bestseller: true, sales_count: 29,
+      stock: 9, low_stock_threshold: 3, is_active: true, is_featured: false, is_bestseller: true, is_flash_sale: false, sales_count: 29,
       images: [], created_at: daysAgo(12)
     },
     {
@@ -147,7 +147,7 @@
       description_en: 'A stable 10% vitamin C serum with ferulic acid to brighten, even tone and soften dark spots over time. Lightweight and layers well under makeup.',
       description_ar: 'سيروم ثابت بتركيز 10% فيتامين سي مع حمض الفيروليك لتفتيح البشرة وتوحيد اللون وتخفيف البقع الداكنة تدريجياً. خفيف ويناسب وضع المكياج فوقه.',
       price: 760, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 14, low_stock_threshold: 4, is_active: true, is_featured: false, is_bestseller: false, sales_count: 18,
+      stock: 14, low_stock_threshold: 4, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false, sales_count: 18,
       images: [], created_at: daysAgo(11)
     },
     {
@@ -156,7 +156,7 @@
       description_en: 'A slim double-sided compact with true-tone mirror and magnifying side, finished in soft blush with a champagne clasp.',
       description_ar: 'مرآة جيب نحيفة بوجهين: مرآة بالألوان الحقيقية وجهار تكبير، بلمسة بلون البلاش الوردي ومزلاج شامبين.',
       price: 240, discount_price: 190, discount_active: true, discount_starts_at: null, discount_ends_at: daysAhead(21),
-      stock: 0, low_stock_threshold: 3, is_active: true, is_featured: false, is_bestseller: false, sales_count: 11,
+      stock: 0, low_stock_threshold: 3, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false, sales_count: 11,
       images: [], created_at: daysAgo(10)
     },
     {
@@ -165,7 +165,7 @@
       description_en: 'Double-layered cotton pads for toner, makeup removal and nail care. Soft on skin, lint-free, and packed in a resealable pouch.',
       description_ar: 'قطع قطن بطبقتين للتنير وإزالة المكياج والعناية بالأظافر. ناعمة على البشرة، بدون ألياف متطايرة، وبكيس قابل لإعادة الإغلاق.',
       price: 120, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 60, low_stock_threshold: 10, is_active: true, is_featured: false, is_bestseller: false, sales_count: 23,
+      stock: 60, low_stock_threshold: 10, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false, sales_count: 23,
       images: [], created_at: daysAgo(9)
     },
     {
@@ -174,7 +174,7 @@
       description_en: 'A warm oriental signature: saffron and bergamot open into amber, oud and vanilla. Long-lasting with a soft, memorable sillage.',
       description_ar: 'توقيع شرقي دافئ: الزعفران والبرغموت يفتتحان العطر ثم يأتي العنبر والعود والفانيليا. ثبات طويل وفوحان ناعم لا يُنسى.',
       price: 1450, discount_price: 1150, discount_active: true, discount_starts_at: null, discount_ends_at: daysAhead(21),
-      stock: 12, low_stock_threshold: 3, is_active: true, is_featured: true, is_bestseller: true, sales_count: 44,
+      stock: 12, low_stock_threshold: 3, is_active: true, is_featured: true, is_bestseller: true, is_flash_sale: false, sales_count: 44,
       images: [], created_at: daysAgo(25)
     },
     {
@@ -183,7 +183,7 @@
       description_en: 'A modern floral: Damascus rose and neroli wrapped in white musk and cedar. Fresh on first spray, tender on the drydown.',
       description_ar: 'زهري عصري: ورد دمشقي ونيرولي يلتفان حول المسك الأبيض والأرز. منعش عند الرش الأول، ناعم مع مرور الوقت.',
       price: 1320, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 16, low_stock_threshold: 4, is_active: true, is_featured: false, is_bestseller: false, sales_count: 21,
+      stock: 16, low_stock_threshold: 4, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false, sales_count: 21,
       images: [], created_at: daysAgo(23)
     },
     {
@@ -192,7 +192,7 @@
       description_en: 'A feather-light body mist of clean white musk and cotton flowers. Perfect for daytime layers over shower gel and lotion.',
       description_ar: 'بودي ميست خفيف كالريشة بمسك أبيض نقي وأزهار القطن. مثالي للاستخدام اليومي فوق الجل واللوشن.',
       price: 480, discount_price: 390, discount_active: true, discount_starts_at: null, discount_ends_at: daysAhead(10),
-      stock: 30, low_stock_threshold: 6, is_active: true, is_featured: false, is_bestseller: true, sales_count: 48,
+      stock: 30, low_stock_threshold: 6, is_active: true, is_featured: false, is_bestseller: true, is_flash_sale: false, sales_count: 48,
       images: [], created_at: daysAgo(19)
     },
     {
@@ -201,7 +201,7 @@
       description_en: 'An alcohol-free perfume oil of Egyptian jasmine, warm amber and a hint of sandalwood. Roll on pulse points for an intimate, long-lasting scent.',
       description_ar: 'زيت عطر خالٍ من الكحول بالياسمين المصري والعنبر الدافئ ولمسة صندل. توضع على نقاط النبض لرائحة حميمة طويلة الثبات.',
       price: 560, discount_price: null, discount_active: false, discount_starts_at: null, discount_ends_at: null,
-      stock: 20, low_stock_threshold: 4, is_active: true, is_featured: false, is_bestseller: false, sales_count: 15,
+      stock: 20, low_stock_threshold: 4, is_active: true, is_featured: false, is_bestseller: false, is_flash_sale: false, sales_count: 15,
       images: [], created_at: daysAgo(8)
     }
   ];
@@ -228,12 +228,13 @@
       '</svg>';
     return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   }
-  function demoShade(id, productId, num, en, ar, stock, active, tones) {
+  function demoShade(id, productId, num, en, ar, stock, active, tones, price) {
     var suffix = num + ' \u00b7 ' + en.toUpperCase();
     return {
       id: id, product_id: productId, shade_number: num,
       shade_name_en: en, shade_name_ar: ar,
       stock_quantity: stock, low_stock_threshold: 4,
+      price: (price === undefined ? null : price),
       is_active: active, display_order: num,
       created_at: daysAgo(20), updated_at: daysAgo(2),
       images: tones.map(function (t, i) {
@@ -265,6 +266,17 @@
     demoShade('demo-sh-p01-3', 'demo-p01', 3, 'Golden Sand', 'رملي ذهبي', 0, false,
       [['#C99B62', '#B18551'], ['#D8AC78', '#C1935F']])
   ];
+
+  /* Individual shade pricing demo: these shades carry their own
+     selling prices in the database (null = inherit product price).
+     Rosewood inherits; the others are individually priced. */
+  (function () {
+    var byId = { 'demo-sh-p03-2': 360, 'demo-sh-p03-3': 320, 'demo-sh-p03-4': 280 };
+    SHADES.forEach(function (s) {
+      if (byId[s.id] !== undefined) s.price = byId[s.id];
+      else if (s.product_id === 'demo-p03') s.price = null;
+    });
+  })();
 
   function findShades(productId) {
     return SHADES

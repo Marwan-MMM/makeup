@@ -136,7 +136,9 @@
         number: Number(s.shade_number) || 0,
         nameEn: s.shade_name_en || '',
         nameAr: s.shade_name_ar || '',
-        stock: Number(s.stock_quantity) || 0
+        stock: Number(s.stock_quantity) || 0,
+        price: (s.price === null || s.price === undefined || s.price === '') ? null : Number(s.price),
+        lowThreshold: Number(s.low_stock_threshold) || 5
       };
     });
     return {
@@ -154,6 +156,7 @@
       active: !!row.is_active,
       featured: !!row.is_featured,
       bestseller: !!row.is_bestseller,
+      flash: !!row.is_flash_sale,
       sales: Number(row.sales_count) || 0,
       createdAt: row.created_at,
       images: images,
@@ -171,6 +174,39 @@
 
   function locName(p) { return I18N.lang === 'ar' ? (p.nameAr || p.nameEn) : (p.nameEn || p.nameAr); }
   function locDesc(p) { return I18N.lang === 'ar' ? (p.descAr || p.descEn) : (p.descEn || p.descAr); }
+
+  /* ----------------------------------------------------------------
+     Individual shade pricing (product_shades.price, migration).
+     Rule: a shade's own DB price IS the selling price for that shade —
+     the product-level discount never stacks on top of it, so nothing
+     is ever discounted twice. Shades without an individual price
+     follow the product's live-discount logic exactly as before.
+     The storefront never invents prices: cart/checkout lines resolve
+     through here and orders re-validate server-side in create_order().
+  ---------------------------------------------------------------- */
+  function shadePriceOverride(p, shade) {
+    return !!(shade && shade.price !== null && shade.price !== undefined);
+  }
+  function shadeUnitPrice(p, shade) {
+    if (shadePriceOverride(p, shade)) return Number(shade.price);
+    return p.finalPrice;
+  }
+  function shadeBasePrice(p, shade) {
+    if (shadePriceOverride(p, shade)) return Number(shade.price);
+    return p.price;
+  }
+  /* Prices appear inside shade buttons only when individual shade
+     pricing is in effect AND the shades' selling prices differ. */
+  function shadePricesDiffer(p) {
+    var shades = p.shades || [];
+    if (!shades.length) return false;
+    var hasIndividual = shades.some(function (s) {
+      return s.price !== null && s.price !== undefined;
+    });
+    if (!hasIndividual) return false;
+    var first = shadeUnitPrice(p, shades[0]);
+    return shades.some(function (s) { return shadeUnitPrice(p, s) !== first; });
+  }
 
   /* ----------------------------------------------------------------
      Settings / homepage / banners
@@ -270,7 +306,7 @@
       var cid = cats[opts.category].id;
       rows = rows.filter(function (p) { return p.category_id === cid; });
     }
-    if (opts.category === 'flash') rows = rows.filter(liveDiscount);
+    if (opts.category === 'flash') rows = rows.filter(function (p) { return p.is_flash_sale && liveDiscount(p); });
     if (opts.subcategory && cats[opts.subcategory]) {
       var sid = cats[opts.subcategory].id;
       rows = rows.filter(function (p) { return p.subcategory_id === sid; });
@@ -339,8 +375,9 @@
         var c = cats[opts.category];
         if (c) q = q.eq('category_id', c.id);
       }
-      /* Flash sales are discounted products: filter server-side, then
+      /* Flash sales: the admin Flash Sale flag AND a live discount.
          postProcess still applies the live discount window + sorting. */
+      if (opts.category === 'flash') q = q.eq('is_flash_sale', true);
       if (opts.category === 'flash' || opts.onSale) q = q.eq('discount_active', true);
       if (opts.subcategory) {
         var subs = mapBySlug((catsCache || []).filter(function (x) { return x.parent_id; }));
@@ -392,7 +429,9 @@
   function postProcess(rows, opts) {
     var items = rows.map(normalise);
     if (opts.onSale || opts.category === 'flash') {
-      items = items.filter(function (p) { return p.onSale; });
+      items = items.filter(function (p) {
+        return p.onSale && (opts.category !== 'flash' || p.flash);
+      });
       if (opts.category === 'flash' || (!opts.sort || opts.sort === 'newest')) {
         items.sort(function (a, b) { return b.pct - a.pct; });
       }
@@ -482,6 +521,9 @@
       nameEn: row.shade_name_en || '',
       nameAr: row.shade_name_ar || '',
       stock: Number(row.stock_quantity) || 0,
+      /* Individual shade price (migration: product_shades.price).
+         null = the shade inherits the main product price. */
+      price: (row.price === null || row.price === undefined || row.price === '') ? null : Number(row.price),
       lowThreshold: Number(row.low_stock_threshold) || 5,
       active: !!row.is_active,
       order: Number(row.display_order) || 0,
@@ -549,7 +591,7 @@
         } else if (p.stock < qty) {
           return Promise.reject(new Error('Insufficient stock: ' + p.name_en));
         }
-        var unit = DEMO.unitPrice(p);
+        var unit = shadeUnitPrice(p, shadeRow);
         var line = Math.round(unit * qty * 100) / 100;
         subtotal += line;
         lines.push({
@@ -809,6 +851,9 @@
     getFlashSales: getFlashSales,
     search: search,
     getShades: getShades,
+    shadeUnitPrice: shadeUnitPrice,
+    shadePriceOverride: shadePriceOverride,
+    shadePricesDiffer: shadePricesDiffer,
     isDemoId: isDemoId,
     createOrder: createOrder,
     trackOrder: trackOrder,

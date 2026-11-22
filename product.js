@@ -102,6 +102,19 @@
     return I.t('shade_numbered', { n: s.number }) + (name ? ' \u2014 ' + name : '');
   }
 
+  /* Individual shade pricing: a shade with its own DB price IS the
+     selling price for that selection (the product discount never
+     stacks on top, so nothing is discounted twice). Shades without an
+     individual price keep the product's live-discount price. drawPdp()
+     re-renders on every shade switch, so the displayed price follows
+     the selection immediately. */
+  function priceOverride() {
+    return !!(shade && DB.shadePriceOverride(product, shade));
+  }
+  function displayPrice() {
+    return priceOverride() ? Number(shade.price) : product.finalPrice;
+  }
+
   /* Stock label for shaded products follows the selected shade. */
   function currentStock() {
     return shade ? shade.stock : (product ? product.stock : 0);
@@ -116,30 +129,52 @@
     if (stock <= 0) {
       return '<p class="pdp-stock is-out"><span class="stock-dot dot-out"></span>' + I.t('out_of_stock') + '</p>';
     }
+    /* Shade stock quantities stay private unless the shade reaches its
+       own low-stock alert level (per-shade threshold). */
     if (stock <= (shade ? shade.lowThreshold : p.lowThreshold)) {
       return '<p class="pdp-stock"><span class="stock-dot dot-low"></span>' + I.t('low_stock', { n: stock }) + '</p>';
     }
-    return '<p class="pdp-stock"><span class="stock-dot dot-ok"></span>' +
-      (hasShades() ? I.t('shade_of_stock', { n: stock }) : I.t('in_stock')) + '</p>';
+    return '<p class="pdp-stock"><span class="stock-dot dot-ok"></span>' + I.t('in_stock') + '</p>';
   }
 
   function shadeSectionHtml() {
     if (!hasShades()) return '';
+    var showPrices = DB.shadePricesDiffer(product);
     var btns = shades.map(function (s) {
       var selectable = s.stock > 0;
       var cls = 'shade-btn' + (shade && shade.id === s.id ? ' active' : '') + (selectable ? '' : ' is-out');
+      /* Per-shade low-stock alert: show the remaining quantity ONLY
+         when the shade reaches its own threshold; out-of-stock shades
+         are already flagged separately. */
+      var low = selectable && s.stock <= s.lowThreshold
+        ? '<span class="shade-btn-low">' + UI.esc(I.t('low_stock', { n: s.stock })) + '</span>' : '';
+      var price = showPrices
+        ? '<span class="shade-btn-price num">' + UI.esc(UI.money(DB.shadeUnitPrice(product, s))) + '</span>' : '';
+      var aria = shadeLineLabel(s) +
+        (price ? ' \u00b7 ' + UI.money(DB.shadeUnitPrice(product, s)) : '') +
+        (low ? ' \u00b7 ' + I.t('low_stock', { n: s.stock }) : '') +
+        (selectable ? '' : ' \u00b7 ' + I.t('shade_unavailable'));
       return '<button type="button" class="' + cls + '" data-shade-id="' + UI.esc(s.id) + '"' +
         (selectable ? '' : ' disabled aria-disabled="true"') +
         ' aria-pressed="' + (shade && shade.id === s.id ? 'true' : 'false') + '"' +
-        ' aria-label="' + UI.esc(shadeLineLabel(s) + (selectable ? '' : ' \u00b7 ' + I.t('shade_unavailable'))) + '">' +
+        ' aria-label="' + UI.esc(aria) + '">' +
         '<span class="shade-btn-num num">' + UI.esc(s.number) + '</span>' +
         (shadeName(s) ? '<span class="shade-btn-name">' + UI.esc(shadeName(s)) + '</span>' : '') +
+        price +
+        low +
         (selectable ? '' : '<span class="shade-btn-out">' + I.t('shade_unavailable') + '</span>') +
         '</button>';
     }).join('');
+    /* Selected-shade line: quantities appear only when the shade is low
+       or out of stock (per-shade low-stock alert level). */
     var label = shade
       ? '<p class="shade-selected">' + UI.esc(shadeLineLabel(shade)) +
-        ' \u00b7 <span class="num">' + (shade.stock > 0 ? I.t('shade_of_stock', { n: shade.stock }) : I.t('shade_unavailable')) + '</span></p>'
+        (shade.stock <= 0
+          ? ' \u00b7 <span class="num">' + UI.esc(I.t('shade_unavailable')) + '</span>'
+          : (shade.stock <= shade.lowThreshold
+            ? ' \u00b7 <span class="num">' + UI.esc(I.t('low_stock', { n: shade.stock })) + '</span>'
+            : '')) +
+        '</p>'
       : '';
     return '<div class="pdp-shades">' +
       '<p class="overline pdp-shades-title">' + I.t('shades_title') + '</p>' +
@@ -192,10 +227,11 @@
       '<p class="pdp-cat">' + UI.esc(UI.catLabel(p)) + '</p>' +
       '<h1 class="pdp-name">' + UI.esc(DB.locName(p)) + '</h1>' +
       '<div class="pdp-prices">' +
-      '<span class="price-now">' + UI.money(p.finalPrice) + '</span>' +
-      (p.onSale ? '<span class="price-old">' + UI.money(p.price) + '</span>' +
+      '<span class="price-now">' + UI.money(displayPrice()) + '</span>' +
+      (!priceOverride() && p.onSale ? '<span class="price-old">' + UI.money(p.price) + '</span>' +
         '<span class="badge badge-off">' + I.t('off_badge', { p: p.pct }) + '</span>' +
         '<span class="pdp-save">' + I.t('save_amount', { amount: UI.money(p.savings) }) + '</span>' : '') +
+      (priceOverride() ? '<span class="pdp-shade-price-note">' + UI.esc(I.t('shade_price_note')) + '</span>' : '') +
       '</div>' +
       stockLine() +
       (out ? '<p class="muted small">' + I.t('pdp_out_note') + '</p>' : '') +
@@ -224,7 +260,7 @@
     sticky.className = 'pdp-sticky-cta';
     sticky.id = 'pdp-sticky';
     sticky.innerHTML =
-      '<span class="sticky-price">' + UI.money(p.finalPrice) + '</span>' +
+      '<span class="sticky-price">' + UI.money(displayPrice()) + '</span>' +
       '<button type="button" class="btn btn-primary" id="pdp-add-sticky"' + (purchasable ? '' : ' disabled') + '>' + I.t('add_to_cart') + '</button>';
     document.body.appendChild(sticky);
 
@@ -299,6 +335,8 @@
         number: shade.number,
         nameEn: shade.nameEn,
         nameAr: shade.nameAr,
+        /* Individual shade price snapshot for the cart line display */
+        price: shade.price,
         img: shade.images.length ? shade.images[0].url : ''
       } : null);
       UI.toast(I.t('added_cart'), 'ok');
