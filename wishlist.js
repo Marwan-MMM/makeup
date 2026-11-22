@@ -28,7 +28,11 @@
     grid.hidden = false;
     grid.innerHTML = '<div class="skel skel-card"></div><div class="skel skel-card"></div>';
 
-    DB.getProducts({ ids: ids, limit: 100, noLimit: true }).then(function (res) {
+    /* Settings first (cached): the "Show Individual Shade Prices"
+       switch must be settled before card chips render. */
+    DB.getSettings().catch(function () { return {}; }).then(function () {
+      return DB.getProducts({ ids: ids, limit: 100, noLimit: true });
+    }).then(function (res) {
       var items = res.items;
       /* drop wishlist entries whose products no longer exist / are inactive */
       if (items.length !== ids.length) {

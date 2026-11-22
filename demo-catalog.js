@@ -305,6 +305,7 @@
     show_featured: true,
     show_bestsellers: true,
     shipping_fee: 65,
+    show_shade_prices: true,
     payment_simulation: true,
     promo_ribbon_enabled: true,
     promo_ribbon_text_en: 'Glow, girl, glow! \u2728',

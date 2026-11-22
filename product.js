@@ -33,11 +33,34 @@
     return u.get('shade');
   }
 
+  /* Unknown / deactivated product id (bad link, deleted product):
+     replace the skeleton with a friendly empty state instead of
+     crashing with a ReferenceError (the old catch called a function
+     that never existed). */
+  function notFound() {
+    var root = document.getElementById('pdp-root');
+    if (!root) return;
+    root.innerHTML = '<div class="pdp-notfound" style="text-align:center;padding:64px 16px">' +
+      '<h1 class="pdp-name" style="margin-bottom:8px">' + UI.esc(I.t('pdp_not_found_title')) + '</h1>' +
+      '<p style="color:var(--ink-2);margin-bottom:20px">' + UI.esc(I.t('pdp_not_found_text')) + '</p>' +
+      '<a class="btn btn-primary" href="shop.html">' + UI.esc(I.t('continue_shopping')) + '</a>' +
+      '</div>';
+    document.title = 'Blush Beauty';
+  }
+
   function render() {
     var id = idFromUrl();
     if (!id) { notFound(); return; }
 
-    DB.getProduct(id).then(function (p) {
+    /* Product + settings load TOGETHER: the Store Configuration switch
+       "Show Individual Shade Prices" must be settled before the shade
+       buttons first paint (settings are cached, so this adds no extra
+       round trip on most pages). */
+    Promise.all([
+      DB.getProduct(id),
+      DB.getSettings().catch(function () { return {}; })
+    ]).then(function (res) {
+      var p = res[0];
       if (!p) { notFound(); return Promise.reject(new Error('not-found')); }
       product = p;
       qty = 1;
@@ -139,7 +162,9 @@
 
   function shadeSectionHtml() {
     if (!hasShades()) return '';
-    var showPrices = DB.shadePricesDiffer(product);
+    /* Prices show only when the shades' selling prices differ AND the
+       Store Configuration switch "Show Individual Shade Prices" is on. */
+    var showPrices = DB.shadePriceDisplay(product);
     var btns = shades.map(function (s) {
       var selectable = s.stock > 0;
       var cls = 'shade-btn' + (shade && shade.id === s.id ? ' active' : '') + (selectable ? '' : ' is-out');

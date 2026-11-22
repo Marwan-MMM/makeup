@@ -43,8 +43,8 @@
      PostgREST schema cache cannot resolve the relationship yet, the
      FALLBACK_SELECT (no embed) keeps every product query working
      instead of failing whole pages. */
-  var PRODUCT_SELECT = '*, images:product_images(id,product_id,url,alt,position), shades:product_shades(id,product_id,shade_number,shade_name_en,shade_name_ar,stock_quantity,is_active,display_order), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
-  var FALLBACK_SELECT = '*, shades:product_shades(id,product_id,shade_number,shade_name_en,shade_name_ar,stock_quantity,is_active,display_order), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
+  var PRODUCT_SELECT = '*, images:product_images(id,product_id,url,alt,position), shades:product_shades(id,product_id,shade_number,shade_name_en,shade_name_ar,stock_quantity,low_stock_threshold,price,is_active,display_order), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
+  var FALLBACK_SELECT = '*, shades:product_shades(id,product_id,shade_number,shade_name_en,shade_name_ar,stock_quantity,low_stock_threshold,price,is_active,display_order), cat:categories!products_category_id_fkey(id,slug,name_en,name_ar,image_url), sub:categories!products_subcategory_id_fkey(id,slug,name_en,name_ar)';
   var imagesEmbedBroken = false;
   function isEmbedError(err) {
     var m = String((err && err.message) || '');
@@ -207,14 +207,28 @@
     var first = shadeUnitPrice(p, shades[0]);
     return shades.some(function (s) { return shadeUnitPrice(p, s) !== first; });
   }
+  /* Display gate for shade buttons/card chips: prices differ AND the
+     Store Configuration switch allows showing them. Charging is NEVER
+     gated by this — orders always use the shade's real DB price. */
+  function shadePriceDisplay(p) {
+    return shadePricesVisible && shadePricesDiffer(p);
+  }
 
   /* ----------------------------------------------------------------
      Settings / homepage / banners
   ---------------------------------------------------------------- */
   var settingsCache = null, settingsAt = 0;
+  /* Store-configuration switch "Show Individual Shade Prices"
+     (site_settings.show_shade_prices). It ONLY controls the visibility
+     of prices inside shade buttons/cards — it never changes the actual
+     selling price, which always comes from the shade/product data. */
+  var shadePricesVisible = true;
   function getSettings(opts) {
     opts = opts || {};
-    if (MODE === 'demo') return Promise.resolve(Object.assign({}, DEMO.settings));
+    if (MODE === 'demo') {
+      shadePricesVisible = DEMO.settings.show_shade_prices !== false;
+      return Promise.resolve(Object.assign({}, DEMO.settings));
+    }
     if (!opts.fresh && settingsCache && Date.now() - settingsAt < 60000) {
       return Promise.resolve(Object.assign({}, settingsCache));
     }
@@ -223,6 +237,7 @@
         if (res.error) throw res.error;
         settingsCache = res.data;
         settingsAt = Date.now();
+        shadePricesVisible = res.data.show_shade_prices !== false;
         return Object.assign({}, res.data);
       });
   }
@@ -854,6 +869,7 @@
     shadeUnitPrice: shadeUnitPrice,
     shadePriceOverride: shadePriceOverride,
     shadePricesDiffer: shadePricesDiffer,
+    shadePriceDisplay: shadePriceDisplay,
     isDemoId: isDemoId,
     createOrder: createOrder,
     trackOrder: trackOrder,
@@ -866,4 +882,9 @@
     locDesc: locDesc,
     liveDiscount: liveDiscount
   };
+
+  /* Eager settings fetch so the "Show Individual Shade Prices" switch
+     is correct on the first render of every page (cached for 60s, so
+     the header/home/admin calls below reuse it). */
+  getSettings().catch(function () { /* storefront keeps defaults */ });
 })();

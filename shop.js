@@ -182,7 +182,11 @@
       offset: state.offset
     };
 
-    DB.getProducts(opts).then(function (res) {
+    /* Settings first (cached): the "Show Individual Shade Prices"
+       switch must be settled before card chips render. */
+    DB.getSettings().catch(function () { return {}; }).then(function () {
+      return DB.getProducts(opts);
+    }).then(function (res) {
       state.total = res.total;
       state.offset += res.items.length;
       var isFirst = state.offset === res.items.length || reset;

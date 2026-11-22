@@ -418,7 +418,9 @@
        shades render dimmed but still navigate. Products without shades
        keep their exact previous appearance. */
     var shadesHtml = '';
-    var showChipPrices = !!(p.shades && p.shades.length && DB.shadePricesDiffer(p));
+    /* Chip prices: shades' selling prices differ AND the store switch
+       "Show Individual Shade Prices" is on. */
+    var showChipPrices = !!(p.shades && p.shades.length && DB.shadePriceDisplay(p));
     if (p.shades && p.shades.length) {
       shadesHtml = '<div class="card-shades" aria-label="' + esc(I.t('shades_title')) + '">' +
         p.shades.map(function (s) {

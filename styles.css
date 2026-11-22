@@ -590,11 +590,12 @@ select.input {
 }
 .product-card:hover .card-media { border-color: var(--pink); box-shadow: var(--shadow-1); }
 .card-link { display: block; width: 100%; height: 100%; }
-/* Main card image: contain (not cover) with a small inner padding —
-   the whole product photograph stays visible with a little breathing
-   room, proportions preserved, nothing cropped. Banners and category
-   cards are unaffected. */
-.card-media img { width: 100%; height: 100%; object-fit: contain; padding: 5%; transition: transform .4s ease; }
+/* Main card image: object-fit contain with a SMALL inner padding —
+   the balance between the old cover (cropped packaging edges) and the
+   5% padding (read as too zoomed out): the full photograph stays
+   visible while filling the frame almost completely. Banners and
+   category cards are unaffected. */
+.card-media img { width: 100%; height: 100%; object-fit: contain; object-position: center; padding: 2%; transition: transform .4s ease; }
 .product-card:hover .card-media img { transform: scale(1.04); }
 .card-badges {
   position: absolute;
@@ -1550,7 +1551,13 @@ select.input {
 .shade-btn {
   position: relative;
   min-width: 64px;
-  padding: 10px 14px 12px;
+  /* Height grows with content (number + name + price + low-stock
+     line); min-height keeps one-line shades at the old compact look.
+     The legacy fixed height (42px) above clipped the low-stock
+     message below the button border. */
+  height: auto;
+  min-height: 42px;
+  padding: 9px 14px 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -1558,10 +1565,11 @@ select.input {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 3px;
   transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
 }
-.shade-btn-num { font-size: 15px; font-weight: 700; color: var(--ink); }
+.shade-btn-num { font-size: 15px; font-weight: 700; color: var(--ink); line-height: 1.2; }
 .shade-btn-name {
   font-size: 10.5px;
   color: var(--ink-3);
@@ -1569,6 +1577,7 @@ select.input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.2;
 }
 .shade-btn:hover { border-color: var(--pink); background: var(--pink-wash); }
 .shade-btn.active {
@@ -1593,16 +1602,21 @@ select.input {
   font-size: 11px;
   font-weight: 700;
   color: var(--pink-deep);
+  line-height: 1.2;
+  white-space: nowrap;
 }
 .shade-btn.active .shade-btn-price { color: var(--pink-deep); }
 /* Per-shade low-stock alert: remaining quantity shown on the button
-   only when the shade reaches its own threshold. */
+   only when the shade reaches its own threshold. One line, kept fully
+   inside the button (the button grows: height auto + min-height). */
 .shade-btn-low {
   font-size: 9px;
   font-weight: 700;
   color: var(--muted-rose, #B07D85);
   text-transform: uppercase;
   letter-spacing: .06em;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 .shade-selected { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
 .shade-selected .num { color: var(--pink-deep); font-weight: 600; }

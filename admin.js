@@ -2209,6 +2209,7 @@
         switchRow('sw-flash', I.t('ad_set_show_flash'), s.show_flash_sales) +
         switchRow('sw-feat', I.t('ad_set_show_featured'), s.show_featured) +
         switchRow('sw-best', I.t('ad_set_show_best'), s.show_bestsellers) +
+        switchRow('sw-shade-prices', I.t('ad_set_shade_prices'), s.show_shade_prices !== false) +
         switchRow('sw-sim', I.t('ad_set_sim'), s.payment_simulation) +
         '<div class="field mt-2" style="max-width:240px"><label>' + I.t('ad_set_shipping') + '</label>' +
         '<input class="input is-ltr" id="st-shipping" inputmode="decimal" value="' + esc(s.shipping_fee) + '"></div>' +
@@ -2289,6 +2290,7 @@
             show_flash_sales: swVal('sw-flash'),
             show_featured: swVal('sw-feat'),
             show_bestsellers: swVal('sw-best'),
+            show_shade_prices: swVal('sw-shade-prices'),
             payment_simulation: swVal('sw-sim'),
             shipping_fee: parseFloat(val(f('shipping'))) || 0,
             promo_ribbon_enabled: swVal('sw-ribbon'),
