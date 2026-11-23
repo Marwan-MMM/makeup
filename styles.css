@@ -308,7 +308,7 @@ select.input {
   position: sticky;
   top: 0;
   z-index: 60;
-  background: #FDAFC9;
+  background: #E8A0B0;
   border-bottom: 1px solid rgba(0, 0, 0, .08);
 }
 .header-grid {
@@ -369,9 +369,21 @@ select.input {
 .site-header .main-nav a:hover,
 .site-header .main-nav a.active { color: var(--ink); }
 .site-header .main-nav a.active::after { background: var(--pink-deep); }
-.site-header .icon-btn { color: var(--ink); }
-.site-header .icon-btn:hover { color: var(--pink-deep); }
-.site-header .lang-btn { border-color: rgba(44, 40, 35, .55); color: var(--ink); }
+/* Round 8 addendum: the search, wishlist, cart and language controls
+   now match the wordmark EXACTLY (#FBF9F6). The SVGs in icon() are
+   built with stroke="currentColor" (and fill="currentColor" only for
+   the filled heart), so they inherit the button color — verified in
+   the browser, not assumed. Exclusions: the menu burger (.nav-open)
+   is not one of the four requested controls and keeps ink; the search
+   overlay's close button (.search-close) sits on the light --surface
+   panel, not on the pink bar. Hover/active step up to pure white for
+   a subtle, brand-consistent state change. Count badges keep their
+   own colors (rule below). */
+.site-header .icon-btn:not(.nav-open):not(.search-close) { color: #FBF9F6; }
+.site-header .icon-btn:not(.nav-open):not(.search-close):hover,
+.site-header .icon-btn:not(.nav-open):not(.search-close):active { color: #FFFFFF; }
+.site-header .lang-btn { border-color: rgba(251, 249, 246, .75); color: #FBF9F6; }
+.site-header .lang-btn:hover { border-color: #FBF9F6; color: #FFFFFF; }
 /* Count badges keep deep-pink on white — clearly visible on the bar. */
 .site-header .count-pill { background: #FFFFFF; color: var(--pink-deep); }
 .brand-sub {
@@ -534,8 +546,8 @@ select.input {
    state still reads clearly without touching the drawer background. */
 .mobile-drawer .brand-main { color: #FFF7EF; }
 .mobile-drawer .brand-sub { color: rgba(255, 247, 239, .85); }
-.mobile-drawer .lang-btn { border-color: rgba(255, 247, 239, .75); color: #FFF7EF; }
-.mobile-drawer .lang-btn:hover { border-color: #FFF7EF; color: #FFFFFF; }
+.mobile-drawer .lang-btn { border-color: rgba(251, 249, 246, .75); color: #FBF9F6; }
+.mobile-drawer .lang-btn:hover { border-color: #FBF9F6; color: #FFFFFF; }
 .drawer-head {
   display: flex;
   align-items: center;
