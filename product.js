@@ -253,9 +253,27 @@
       '<h1 class="pdp-name">' + UI.esc(DB.locName(p)) + '</h1>' +
       '<div class="pdp-prices">' +
       '<span class="price-now">' + UI.money(displayPrice()) + '</span>' +
-      (!priceOverride() && p.onSale ? '<span class="price-old">' + UI.money(p.price) + '</span>' +
-        '<span class="badge badge-off">' + I.t('off_badge', { p: p.pct }) + '</span>' +
-        '<span class="pdp-save">' + I.t('save_amount', { amount: UI.money(p.savings) }) + '</span>' : '') +
+      /* Discount display — computed from the SELECTED shade's effective
+         selling price, never a frozen product-level number:
+           pct    = round((base price - effective price) / base price * 100)
+           saved  = base price - effective price
+         The effective price is the shade's own price when one is set
+         (it REPLACES the product discount — never stacked) or the
+         product's live-discount price otherwise. The badge, struck
+         original price and savings re-render on every shade switch, so
+         differently priced shades each show their own percentage (e.g.
+         base 150 with shades 85/90/100/110 -> 43/40/33/27% OFF). When
+         the effective price is not below the base price there is no
+         discount and no badge is shown. */
+      (function () {
+        var eff = displayPrice();
+        var base = p.price;
+        if (!(base > 0) || !(eff < base)) return '';
+        var pct = Math.round(((base - eff) / base) * 100);
+        return '<span class="badge badge-off">' + I.t('off_badge', { p: pct }) + '</span>' +
+          '<span class="price-old">' + UI.money(base) + '</span>' +
+          '<span class="pdp-save">' + I.t('save_amount', { amount: UI.money(base - eff) }) + '</span>';
+      })() +
       (priceOverride() ? '<span class="pdp-shade-price-note">' + UI.esc(I.t('shade_price_note')) + '</span>' : '') +
       '</div>' +
       stockLine() +

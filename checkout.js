@@ -1,10 +1,15 @@
 /* ============================================================
    Blush Beauty — checkout.js
    Guest checkout. Collects contact + Egyptian governorate +
-   address + payment method. Order creation goes through the
-   secure backend path (Edge Function / create_order database
-   function) which re-validates stock and recalculates every
-   total server-side. Card payments run in a clearly-labelled
+   address + the payment method for the REMAINING balance. Order
+   creation goes through the secure backend path (Edge Function /
+   create_order database function) which re-validates stock,
+   recalculates every total server-side and computes the MANDATORY
+   50% InstaPay deposit itself — the browser never sends amounts.
+   A payment screenshot upload is required before submission; an
+   uploaded screenshot is only a submission, never a verified
+   payment (an authorised admin verifies it in the dashboard).
+   Card payments for the remaining balance run in a clearly-labelled
    simulation for the prototype; no card data is collected.
    ============================================================ */
 (function () {
@@ -132,12 +137,101 @@
 
     DB.getSettings().then(function (s) {
       shippingFee = Number(s.shipping_fee) || 0;
+      var total = Math.round((subtotal + shippingFee) * 100) / 100;
+      /* Mandatory 50% deposit of the FINAL total (after discounts and
+         shipping), rounded to 2 decimals; remaining = exact difference.
+         The server recomputes both from trusted values at submission —
+         these figures are display only. */
+      var deposit = Math.round(total / 2 * 100) / 100;
+      var remaining = Math.round((total - deposit) * 100) / 100;
+      /* Product savings across cart lines (live discounts + cheaper
+         shades vs the base price) shown as the discount row. */
+      var discount = 0;
+      rows.forEach(function (r) {
+        var unit = DB.shadeUnitPrice(r.p, r.shadeRow);
+        if (unit < r.p.price) discount += (r.p.price - unit) * r.qty;
+      });
+      discount = Math.round(discount * 100) / 100;
       document.getElementById('co-subtotal').textContent = UI.money(subtotal);
       document.getElementById('co-shipping').textContent = UI.money(shippingFee);
-      document.getElementById('co-total').textContent = UI.money(Math.round((subtotal + shippingFee) * 100) / 100);
+      document.getElementById('co-total').textContent = UI.money(total);
+      var discRow = document.getElementById('row-discount');
+      discRow.hidden = !(discount > 0);
+      document.getElementById('co-discount').textContent = '- ' + UI.money(discount);
+      document.getElementById('co-deposit').textContent = UI.money(deposit);
+      document.getElementById('co-remaining').textContent = UI.money(remaining);
+      document.getElementById('deposit-amount-note').textContent =
+        I.t('co_deposit_note_line', { amount: UI.money(deposit), remaining: UI.money(remaining) });
     });
     document.getElementById('co-items-count').textContent = I.t('cart_items', {
       n: rows.reduce(function (a, r) { return a + r.qty; }, 0)
+    });
+  }
+
+  /* ---------- mandatory InstaPay deposit: link + screenshot upload ---------- */
+  var proofFile = null;   /* the validated File object to upload */
+  var proofReady = false; /* true when a valid screenshot is selected */
+
+  function setProofError(msg) {
+    var el = document.getElementById('proof-error');
+    el.textContent = msg || '';
+    el.hidden = !msg;
+  }
+  function showPreview(src) {
+    document.getElementById('proof-img').src = src;
+    document.getElementById('proof-empty').hidden = true;
+    document.getElementById('proof-preview').hidden = false;
+  }
+  function resetProof() {
+    proofFile = null;
+    proofReady = false;
+    document.getElementById('proof-input').value = '';
+    document.getElementById('proof-img').removeAttribute('src');
+    document.getElementById('proof-empty').hidden = false;
+    document.getElementById('proof-preview').hidden = true;
+    setProofError('');
+  }
+  function acceptProofFile(file) {
+    var okTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    var okExt = ['jpg', 'jpeg', 'png', 'webp'];
+    var ext = String(file.name || '').split('.').pop().toLowerCase();
+    if (okTypes.indexOf(file.type) === -1 && okExt.indexOf(ext) === -1) {
+      setProofError(I.t('co_proof_err_type'));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setProofError(I.t('co_proof_err_size'));
+      return;
+    }
+    if (file.size === 0) {
+      setProofError(I.t('co_proof_err_empty'));
+      return;
+    }
+    proofFile = file;
+    proofReady = true;
+    setProofError('');
+    var reader = new FileReader();
+    reader.onload = function () { showPreview(String(reader.result || '')); };
+    reader.readAsDataURL(file);
+  }
+  function wireDepositPanel() {
+    var link = document.getElementById('instapay-link');
+    var url = (window.BB_CONFIG && window.BB_CONFIG.INSTAPAY_URL) || '';
+    link.href = url;
+    link.addEventListener('click', function () {
+      UI.toast(I.t('co_deposit_after_transfer'), 'info');
+    });
+    document.getElementById('instapay-link-url').textContent = url;
+
+    var input = document.getElementById('proof-input');
+    document.getElementById('proof-pick').addEventListener('click', function () { input.click(); });
+    document.getElementById('proof-replace').addEventListener('click', function () { input.click(); });
+    document.getElementById('proof-remove').addEventListener('click', resetProof);
+    input.addEventListener('change', function () {
+      var f = input.files && input.files[0];
+      if (!f) return;
+      resetProof();
+      acceptProofFile(f);
     });
   }
 
@@ -197,6 +291,16 @@
     btn.textContent = I.t('co_placing') + '\u2026';
 
     var method = document.querySelector('input[name="payment"]:checked').value;
+    /* MANDATORY: the InstaPay deposit screenshot must be selected for
+       EVERY order (the deposit itself is paid via InstaPay regardless
+       of the remaining-balance method). Submission is blocked without
+       it, and the server rejects orders without a valid proof path. */
+    if (!proofFile || !proofReady) {
+      UI.toast(I.t('co_err_proof_required'), 'error');
+      var dep = document.getElementById('deposit-block');
+      if (dep) dep.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     var payload = {
       items: rows.map(function (r) {
         var line = { product_id: r.p.id, quantity: r.qty };
@@ -215,9 +319,16 @@
       payment_method: method
     };
 
-    DB.createOrder(payload).then(function (order) {
+    btn.textContent = I.t('co_uploading') + '…';
+    DB.uploadPaymentProof(proofFile).then(function (up) {
+      payload.payment = { proof_path: up.path };
+      return DB.createOrder(payload);
+    }).then(function (order) {
       sessionStorage.setItem('blush_last_order', JSON.stringify(order));
-      if (method === 'cod') {
+      if (method === 'cod' || method === 'instapay') {
+        /* COD: remaining 50% is paid on delivery. InstaPay: the
+           remaining-balance proof is uploaded from order tracking after
+           the deposit is verified. Neither marks the order fully paid. */
         UI.Cart.clear();
         window.location.href = 'order-confirm.html?order=' + encodeURIComponent(order.order_number);
         return;
@@ -253,6 +364,8 @@
       submitting = false;
       btn.disabled = false;
       btn.textContent = I.t('co_place');
+      /* A failed upload leaves no file selected — ask again. */
+      if (err && /screenshot/i.test(err.message || '')) setProofError(err.message);
       var msg = err && err.message ? err.message : I.t('error_generic');
       UI.toast(I.t('co_err_generic', { msg: msg }), 'error');
       /* Stock may have changed server-side — refresh what we know. */
@@ -260,6 +373,7 @@
     });
   }
 
+  wireDepositPanel();
   UI.boot({ rerender: function () {
     var sel = document.getElementById('f-gov');
     var current = sel.value;
@@ -273,8 +387,10 @@
   document.getElementById('place-order').addEventListener('click', placeOrder);
   document.querySelectorAll('input[name="payment"]').forEach(function (r) {
     r.addEventListener('change', function () {
-      var isCard = this.value !== 'cod';
+      var isCard = this.value !== 'cod' && this.value !== 'instapay';
+      var isInsta = this.value === 'instapay';
       document.getElementById('card-flow-note').hidden = !isCard;
+      document.getElementById('instapay-flow-note').hidden = !isInsta;
     });
   });
 

@@ -179,7 +179,10 @@
       onSale: state.onSale || undefined,
       sort: state.sort,
       limit: PAGE_SIZE,
-      offset: state.offset
+      offset: state.offset,
+      /* Server-side pipeline (shop_product_ids RPC): sort/filter run on
+         the complete dataset before pagination. */
+      shopQuery: true
     };
 
     /* Settings first (cached): the "Show Individual Shade Prices"

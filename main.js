@@ -440,11 +440,19 @@
     }
 
     /* Card price: with individual shade pricing the displayed price is
-       the LOWEST shade selling price, prefixed "from"; otherwise the
-       existing product price / live discount exactly as before. */
+       the lowest PURCHASABLE shade selling price, prefixed "from"
+       (matching the shop's effective-price sorting — a sold-out cheap
+       shade can no longer be bought, so quoting it would mislead);
+       otherwise the existing product price / live discount exactly as
+       before. */
     var priceLine;
     if (showChipPrices) {
-      var minPrice = Math.min.apply(null, p.shades.map(function (s) { return DB.shadeUnitPrice(p, s); }));
+      /* normalised shades carry `stock` (renamed from stock_quantity) */
+      var purchasable = p.shades.filter(function (sh) {
+        return sh.stock > 0 && sh.price !== null && sh.price !== undefined;
+      });
+      var pool = purchasable.length ? purchasable : p.shades;
+      var minPrice = Math.min.apply(null, pool.map(function (s) { return DB.shadeUnitPrice(p, s); }));
       priceLine = '<span class="price-from">' + esc(I.t('from_price')) + '</span>' +
         '<span class="price-now">' + money(minPrice) + '</span>';
     } else {
@@ -649,6 +657,10 @@
     document.body.appendChild(backdrop);
     document.body.appendChild(drawer);
     I.apply(drawer);
+    /* Fill the drawer language button label right away — updateLangBtns()
+       previously ran only at header render (before the drawer existed),
+       leaving the button empty/invisible until a language change happened. */
+    updateLangBtns();
 
     var burger = host.querySelector('.nav-open');
     var lastFocus = null;
@@ -691,8 +703,13 @@
       if (lastFocus && lastFocus.focus) lastFocus.focus();
     }
 
-    /* language buttons */
-    host.querySelectorAll('[data-lang-toggle]').forEach(function (b) {
+    /* language buttons — bound DOCUMENT-WIDE. The drawer is appended to
+       document.body (not inside the header host), so the old host-scoped
+       query missed its button: in English the label was blank (the
+       updater ran before the drawer existed) and in Arabic the visible
+       button had no click listener. setLang() re-applies translations to
+       the whole document and persists via localStorage. */
+    document.querySelectorAll('[data-lang-toggle]').forEach(function (b) {
       b.addEventListener('click', function () {
         I.setLang(I.lang === 'en' ? 'ar' : 'en');
       });
@@ -703,17 +720,19 @@
       markActiveNav();
     });
 
-    /* brand + demo banner from settings */
+    /* brand + demo banner from settings. The wordmark ALWAYS keeps its
+       two-part typography ("Blush" large, "Beauty" small): the old code
+       collapsed the configured name into ONE brand-main span (or replaced
+       the whole brand with the logo image), which is why the correct
+       two-size logo appeared only for a moment before JS swapped it. */
     DB.getSettings().then(function (s) {
       var slot = host.querySelector('[data-brand-slot]');
       if (!slot) return;
-      var name = I.lang === 'ar' ? (s.brand_name_ar || s.brand_name_en || 'BLUSH BEAUTY') : (s.brand_name_en || 'BLUSH BEAUTY');
-      if (s.brand_name_en || s.brand_name_ar) {
-        slot.innerHTML = '<span class="brand-main">' + esc(name) + '</span>';
-      }
-      if (s.logo_url) {
-        slot.innerHTML = '<img class="brand-logo" src="' + esc(s.logo_url) + '" alt="' + esc(name) + '">';
-      }
+      var name = I.lang === 'ar' ? (s.brand_name_ar || s.brand_name_en || 'Blush Beauty') : (s.brand_name_en || s.brand_name_ar || 'Blush Beauty');
+      var words = String(name).trim().split(/\s+/);
+      var main = words.shift() || 'Blush';
+      var sub = words.join(' ') || 'Beauty';
+      slot.innerHTML = '<span class="brand-main">' + esc(main) + '</span><span class="brand-sub">' + esc(sub) + '</span>';
     }).catch(function () { /* keep default wordmark */ });
 
     if (DB.mode === 'demo') {

@@ -189,7 +189,13 @@
   }
   function shadeUnitPrice(p, shade) {
     if (shadePriceOverride(p, shade)) return Number(shade.price);
-    return p.finalPrice;
+    if (p.finalPrice !== undefined && p.finalPrice !== null) return p.finalPrice;
+    /* Raw rows (demo catalog, admin previews) carry no normalised
+       finalPrice: apply the same live-discount rule from base fields
+       so order totals can never become NaN. */
+    return liveDiscount(p) && Number(p.discount_price) < Number(p.price)
+      ? Number(p.discount_price)
+      : Number(p.price);
   }
   function shadeBasePrice(p, shade) {
     if (shadePriceOverride(p, shade)) return Number(shade.price);
@@ -338,23 +344,92 @@
     if (opts.max !== undefined && opts.max !== null && opts.max !== '') {
       rows = rows.filter(function (p) { return p.price <= Number(opts.max); });
     }
-    if (opts.inStock) rows = rows.filter(function (p) { return p.stock > 0; });
+    if (opts.inStock) {
+      rows = rows.filter(function (p) {
+        return p.stock > 0 || DEMO.findShades(p.id).some(function (s) {
+          return s.is_active && s.stock_quantity > 0;
+        });
+      });
+    }
     if (opts.onSale) rows = rows.filter(liveDiscount);
     if (opts.featured) rows = rows.filter(function (p) { return p.is_featured; });
     if (opts.bestseller) rows = rows.filter(function (p) { return p.is_bestseller; });
 
+    /* Effective price: mirrors shop_product_ids() — the live-discount
+       price, or the lowest PURCHASABLE shade price, whichever is lower. */
+    function demoEffPrice(p) {
+      var base = liveDiscount(p) ? Number(p.discount_price) : Number(p.price);
+      var purchasable = DEMO.findShades(p.id).filter(function (sh) {
+        return sh.is_active && sh.price !== null && sh.price !== undefined && sh.stock_quantity > 0;
+      });
+      if (purchasable.length) {
+        var minShade = Math.min.apply(null, purchasable.map(function (sh) { return Number(sh.price); }));
+        if (minShade < base) return minShade;
+      }
+      return base;
+    }
+    if ((opts.min !== undefined && opts.min !== null && opts.min !== '') ||
+        (opts.max !== undefined && opts.max !== null && opts.max !== '')) {
+      rows = rows.filter(function (p) {
+        var eff = demoEffPrice(p);
+        if (opts.min !== undefined && opts.min !== null && opts.min !== '' && eff < Number(opts.min)) return false;
+        if (opts.max !== undefined && opts.max !== null && opts.max !== '' && eff > Number(opts.max)) return false;
+        return true;
+      });
+    }
+
     var sort = opts.sort || 'newest';
     rows = rows.slice();
-    if (sort === 'price_asc') rows.sort(function (a, b) { return a.price - b.price; });
-    else if (sort === 'price_desc') rows.sort(function (a, b) { return b.price - a.price; });
-    else if (sort === 'best') rows.sort(function (a, b) { return b.sales_count - a.sales_count; });
-    else rows.sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+    if (sort === 'price_asc') rows.sort(function (a, b) { return demoEffPrice(a) - demoEffPrice(b); });
+    else if (sort === 'price_desc') rows.sort(function (a, b) { return demoEffPrice(b) - demoEffPrice(a); });
+    else if (sort === 'best') rows.sort(function (a, b) { return (b.sales_count || 0) - (a.sales_count || 0) || new Date(b.created_at || 0) - new Date(a.created_at || 0); });
+    else rows.sort(function (a, b) { return new Date(b.created_at || 0) - new Date(a.created_at || 0); });
 
     return demoJoin(rows);
   }
 
   function getProducts(opts) {
     opts = opts || {};
+    /* Shop page: the search / filter / sort / pagination pipeline runs
+       SERVER-SIDE in shop_product_ids() over the COMPLETE dataset, so
+       price sorting uses the effective selling price (live product
+       discount or the lowest purchasable shade price) and Best Selling
+       uses real maintained sales counts — never just the loaded page.
+       The RPC returns the ordered page of product IDs + the total; the
+       rows are then fetched through the normal ids path (which keeps
+       the image/shade/category embeds and the demo-id routing) and
+       reordered to the server's order. If the RPC is missing (database
+       not yet migrated) the legacy direct-query path runs unchanged. */
+    if (opts.shopQuery && MODE !== 'demo') {
+      return client.rpc('shop_product_ids', {
+        p: {
+          category: opts.category || null, subcategory: opts.subcategory || null,
+          q: opts.q || null, min: (opts.min !== undefined && opts.min !== null && opts.min !== '') ? String(opts.min) : null,
+          max: (opts.max !== undefined && opts.max !== null && opts.max !== '') ? String(opts.max) : null,
+          inStock: !!opts.inStock, onSale: !!opts.onSale, sort: opts.sort || 'newest',
+          limit: Number(opts.limit) || 12, offset: Number(opts.offset) || 0
+        }
+      }).then(function (res) {
+        if (res.error || !res.data || !Array.isArray(res.data.ids)) throw new Error('rpc-missing');
+        var pageIds = res.data.ids;
+        var total = Number(res.data.total) || 0;
+        if (!pageIds.length) return { items: [], total: total };
+        return getProducts({ ids: pageIds, noLimit: true }).then(function (rows) {
+          var byId = {};
+          rows.items.forEach(function (p) { byId[p.id] = p; });
+          return {
+            items: pageIds.map(function (id) { return byId[id]; }).filter(Boolean),
+            total: total
+          };
+        });
+      }).catch(function (err) {
+        if (/rpc-missing|function public.shop_product_ids|404|PGRST202/i.test(err.message || String(err))) {
+          /* Database not migrated yet: fall back to the legacy query. */
+          return getProducts(Object.assign({}, opts, { shopQuery: false }));
+        }
+        throw err;
+      });
+    }
     if (MODE === 'demo') {
       var rows = demoFilter(opts);
       var total = rows.length;
@@ -630,6 +705,16 @@
       var num = 'BB-' + ('' + d.getFullYear()).slice(2) +
         String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') +
         '-' + String(Math.floor(1000 + Math.random() * 9000));
+      /* Mandatory 50% deposit — same rule as the database function:
+         computed here from the final total, never taken from the
+         browser; the proof path is required (checkout blocks submission
+         without one). */
+      var proof = String((payload.payment && payload.payment.proof_path) || '').trim();
+      if (!proof) {
+        return Promise.reject(new Error('A payment screenshot is required: pay the 50% deposit via InstaPay and upload the transfer screenshot.'));
+      }
+      var total = Math.round((subtotal + shipping) * 100) / 100;
+      var deposit = Math.round(total / 2 * 100) / 100;
       var order = {
         id: 'demo-' + genUuid(),
         order_number: num,
@@ -638,6 +723,18 @@
         payment_method: method,
         payment_status: 'unpaid',
         payment_reference: method === 'cod' ? null : ('SIM-' + genUuid()),
+        deposit_required: true,
+        deposit_amount: deposit,
+        deposit_method: 'instapay',
+        deposit_status: 'awaiting_verification',
+        deposit_proof_path: proof,
+        deposit_submitted_at: new Date().toISOString(),
+        deposit_verified_at: null,
+        deposit_rejection_reason: '',
+        remaining_amount: Math.round((total - deposit) * 100) / 100,
+        remaining_status: 'outstanding',
+        remaining_proof_path: '',
+        remaining_rejection_reason: '',
         full_name: String(cust.full_name || '').trim(),
         phone: phone,
         email: String(cust.email || '').trim(),
@@ -647,7 +744,7 @@
         delivery_instructions: cust.delivery_instructions || '',
         subtotal: subtotal,
         shipping_fee: shipping,
-        total: Math.round((subtotal + shipping) * 100) / 100,
+        total: total,
         created_at: new Date().toISOString(),
         items: lines
       };
@@ -672,6 +769,10 @@
         delivery_instructions: cust.delivery_instructions || ''
       },
       payment_method: method,
+      /* Mandatory InstaPay deposit screenshot path (private bucket).
+         The server verifies the object exists and computes the deposit
+         amount itself — the browser never sends amounts. */
+      payment: { proof_path: String((payload.payment && payload.payment.proof_path) || '') },
       client_request_id: payload.client_request_id || genUuid()
     };
 
@@ -692,7 +793,8 @@
           p_items: body.items,
           p_customer: body.customer,
           p_payment_method: body.payment_method,
-          p_client_request_id: body.client_request_id
+          p_client_request_id: body.client_request_id,
+          p_payment: body.payment
         }).then(function (r) {
           if (r.error) throw new Error(r.error.message);
           return r.data;
@@ -709,7 +811,8 @@
           p_items: body.items,
           p_customer: body.customer,
           p_payment_method: body.payment_method,
-          p_client_request_id: body.client_request_id
+          p_client_request_id: body.client_request_id,
+          p_payment: body.payment
         }).then(function (r) {
           if (r.error) throw new Error(r.error.message);
           return r.data;
@@ -742,6 +845,14 @@
       order_number: o.order_number,
       status: o.status,
       payment_method: o.payment_method,
+      deposit_required: o.deposit_required !== false,
+      deposit_amount: o.deposit_amount,
+      deposit_method: o.deposit_method,
+      deposit_status: o.deposit_status,
+      deposit_rejection_reason: o.deposit_rejection_reason || '',
+      remaining_amount: o.remaining_amount,
+      remaining_status: o.remaining_status,
+      remaining_rejection_reason: o.remaining_rejection_reason || '',
       payment_status: o.payment_status,
       full_name: o.full_name,
       phone: o.phone,
@@ -784,6 +895,62 @@
      Admin helpers (all writes pass through Supabase RLS policies;
      only accounts present in admin_users may modify data).
   ---------------------------------------------------------------- */
+  /* ----------------------------------------------------------------
+     Mandatory 50% deposit — customer-side helpers.
+     uploadPaymentProof: uploads the InstaPay screenshot to the PRIVATE
+     payment-proofs bucket (orders/<uuid>.<ext>) and returns only the
+     storage path — the image itself is never publicly reachable and
+     never stored in the database. Demo mode keeps the data URL in
+     memory so the whole flow is testable without a server.
+  ---------------------------------------------------------------- */
+  var PROOF_BUCKET = 'payment-proofs';
+  function uploadPaymentProof(file) {
+    if (MODE === 'demo') {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function () {
+          var id = 'demo-proof-' + genUuid();
+          DEMO.proofs = DEMO.proofs || {};
+          DEMO.proofs[id] = String(reader.result || '');
+          resolve({ path: id });
+        };
+        reader.onerror = function () { reject(new Error('The screenshot could not be read.')); };
+        reader.readAsDataURL(file);
+      });
+    }
+    var ext = String(file.name || '').split('.').pop().toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'webp'].indexOf(ext) === -1) ext = 'jpg';
+    var path = 'orders/' + genUuid() + '.' + ext;
+    return client.storage.from(PROOF_BUCKET).upload(path, file, {
+      contentType: file.type || 'image/jpeg',
+      cacheControl: '3600',
+      upsert: false
+    }).then(function (res) {
+      if (res.error) throw res.error;
+      return { path: path };
+    });
+  }
+  function submitDepositProof(orderNumber, phone, proofPath) {
+    return client.rpc('submit_deposit_proof', {
+      p_order_number: String(orderNumber || '').trim().toUpperCase(),
+      p_phone: normalizePhone(phone),
+      p_proof_path: String(proofPath || '')
+    }).then(function (res) {
+      if (res.error) throw res.error;
+      return res.data;
+    });
+  }
+  function submitRemainingProof(orderNumber, phone, proofPath) {
+    return client.rpc('submit_remaining_proof', {
+      p_order_number: String(orderNumber || '').trim().toUpperCase(),
+      p_phone: normalizePhone(phone),
+      p_proof_path: String(proofPath || '')
+    }).then(function (res) {
+      if (res.error) throw res.error;
+      return res.data;
+    });
+  }
+
   var adminApi = {
     signIn: function (email, password) {
       if (MODE === 'demo') return Promise.reject(new Error('demo'));
@@ -836,6 +1003,46 @@
     setOrderStatus: function (orderId, status) {
       return client.rpc('admin_set_order_status', { p_order_id: orderId, p_status: status });
     },
+    /* -------- mandatory 50% deposit verification (admin-only; the
+       server re-checks is_admin() so a crafted request cannot approve) */
+    verifyDeposit: function (orderId, approve, reason) {
+      return client.rpc('verify_order_deposit', {
+        p_order_id: orderId, p_approve: !!approve, p_reason: reason || null
+      }).then(function (res) {
+        if (res.error) throw res.error;
+        return res.data;
+      });
+    },
+    verifyRemainingPayment: function (orderId, approve, reason) {
+      return client.rpc('verify_remaining_payment', {
+        p_order_id: orderId, p_approve: !!approve, p_reason: reason || null
+      }).then(function (res) {
+        if (res.error) throw res.error;
+        return res.data;
+      });
+    },
+    /* Secure screenshot preview: a short-lived SIGNED URL from the
+       private bucket — never a public URL, never the raw object. */
+    getProofUrl: function (path) {
+      if (!path) return Promise.resolve(null);
+      if (path.indexOf('demo-proof-') === 0) {
+        return Promise.resolve((DEMO.proofs && DEMO.proofs[path]) || null);
+      }
+      return client.storage.from(PROOF_BUCKET).createSignedUrl(path, 300)
+        .then(function (res) {
+          if (res.error) throw res.error;
+          return res.data && res.data.signedUrl ? res.data.signedUrl : null;
+        });
+    },
+    getOrderEvents: function (orderId) {
+      return client.from('order_payment_events')
+        .select('*').eq('order_id', orderId)
+        .order('created_at', { ascending: true })
+        .then(function (res) {
+          if (res.error) throw res.error;
+          return res.data || [];
+        });
+    },
     adjustStock: function (productId, change, notes, shadeId) {
       var args = { p_product_id: productId, p_change: change, p_notes: notes || null };
       if (shadeId) args.p_shade_id = shadeId;
@@ -855,6 +1062,9 @@
     get ready() { return !!client; },
     getClient: function () { return client; },
     getSettings: getSettings,
+    uploadPaymentProof: uploadPaymentProof,
+    submitDepositProof: submitDepositProof,
+    submitRemainingProof: submitRemainingProof,
     getHomepage: getHomepage,
     getBanners: getBanners,
     getCategories: getCategories,

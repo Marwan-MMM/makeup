@@ -73,9 +73,10 @@
             </div>
           </div>
 
-          <!-- Payment -->
+          <!-- Payment: this method is for the REMAINING balance only —
+               the mandatory 50% deposit is always paid via InstaPay. -->
           <div class="co-block">
-            <h2 data-i18n="co_payment"></h2>
+            <h2 data-i18n="co_payment_remaining"></h2>
             <div class="pay-options" id="pay-options">
               <div class="pay-option">
                 <input type="radio" name="payment" id="pay-visa" value="visa" checked>
@@ -117,12 +118,52 @@
                   </span>
                 </label>
               </div>
+              <div class="pay-option">
+                <input type="radio" name="payment" id="pay-instapay" value="instapay">
+                <label for="pay-instapay">
+                  <span class="pay-radio"></span>
+                  <span><span class="pay-name">InstaPay</span>
+                  <span class="pay-desc" data-i18n="pay_instapay_desc"></span>
+                  <span class="pay-tags"><span class="pay-tag">InstaPay</span></span>
+                  </span>
+                </label>
+              </div>
             </div>
             <div class="sim-notice" id="sim-notice">
               <span id="sim-notice-icon"></span>
               <span data-i18n="pay_sim_notice"></span>
             </div>
             <p class="hint mt-1" id="card-flow-note" data-i18n="co_card_note"></p>
+            <p class="hint mt-1" id="instapay-flow-note" data-i18n="co_instapay_note" hidden></p>
+          </div>
+
+          <!-- Mandatory 50% deposit (InstaPay) — required for EVERY
+               order regardless of the remaining-balance method. -->
+          <div class="co-block" id="deposit-block">
+            <h2 data-i18n="co_deposit_title"></h2>
+            <p class="co-deposit-instructions" data-i18n="co_deposit_instructions"></p>
+            <a class="btn btn-primary btn-block" id="instapay-link" target="_blank" rel="noopener noreferrer">
+              <span data-i18n="co_deposit_open"></span>
+            </a>
+            <p class="hint mt-1" id="instapay-link-url"></p>
+            <p class="co-deposit-amounts" id="deposit-amount-note"></p>
+
+            <div class="proof-upload" id="proof-upload">
+              <p class="proof-upload-title" data-i18n="co_proof_title"></p>
+              <input type="file" id="proof-input" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" hidden>
+              <div class="proof-empty" id="proof-empty">
+                <button type="button" class="btn btn-ghost" id="proof-pick" data-i18n="co_proof_pick"></button>
+                <p class="hint" data-i18n="co_proof_hint"></p>
+              </div>
+              <div class="proof-preview" id="proof-preview" hidden>
+                <img id="proof-img" alt="">
+                <div class="proof-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="proof-replace" data-i18n="co_proof_replace"></button>
+                  <button type="button" class="btn btn-outline btn-sm" id="proof-remove" data-i18n="co_proof_remove"></button>
+                </div>
+              </div>
+              <p class="proof-error" id="proof-error" role="alert" hidden></p>
+            </div>
           </div>
         </form>
 
@@ -132,8 +173,11 @@
           <div class="summary-items" id="co-items"></div>
           <div class="summary-rows">
             <div class="row"><span data-i18n="co_subtotal"></span><b id="co-subtotal"></b></div>
+            <div class="row" id="row-discount" hidden><span data-i18n="co_discount"></span><b id="co-discount"></b></div>
             <div class="row"><span data-i18n="co_shipping"></span><b id="co-shipping"></b></div>
             <div class="row total"><span data-i18n="co_total"></span><b id="co-total"></b></div>
+            <div class="row deposit"><span data-i18n="co_deposit_due"></span><b id="co-deposit"></b></div>
+            <div class="row"><span data-i18n="co_remaining_due"></span><b id="co-remaining"></b></div>
           </div>
           <button type="button" class="btn btn-primary btn-block" id="place-order" data-i18n="co_place"></button>
           <p class="summary-note" id="co-items-count"></p>

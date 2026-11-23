@@ -300,14 +300,16 @@ select.input {
   display: flex; align-items: center; gap: 8px;
   font-size: 12.5px; color: var(--ink-2); padding: 8px 0;
 }
+/* Navbar (round 7): soft brand pink #E8A0B0 with DARK text/icons —
+   white on this light pink only reached ~2:1 contrast, dark ink reads
+   at ~7.6:1. Every rule is scoped to .site-header (and the drawer
+   below), so no other pink element on the site is affected. */
 .site-header {
   position: sticky;
   top: 0;
   z-index: 60;
-  background: rgba(251, 249, 246, .96);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--line);
+  background: #E8A0B0;
+  border-bottom: 1px solid rgba(0, 0, 0, .08);
 }
 .header-grid {
   display: flex;
@@ -338,10 +340,31 @@ select.input {
   letter-spacing: .1em;
   text-transform: uppercase;
 }
-/* Header brand wordmark in hot pink (text only; header background,
-   fonts and the footer/admin wordmarks are unchanged). Covers the
-   mobile drawer brand too, which lives inside the header element. */
-.site-header .brand-main { color: var(--pink-hot); }
+/* Header brand wordmark: "Blush" (brand-main) large and smooth, dark
+   ink for readability on the light pink; "Beauty" (brand-sub) small,
+   visually secondary. Covers the mobile drawer brand too, which lives
+   inside the header element. Footer/admin wordmarks unchanged. */
+.site-header .brand-main {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 21px;
+  letter-spacing: .04em;
+  text-transform: none;
+}
+.site-header .brand-sub {
+  color: rgba(44, 40, 35, .72);
+  font-size: 10px;
+  letter-spacing: .3em;
+}
+.site-header .main-nav a { color: rgba(44, 40, 35, .85); }
+.site-header .main-nav a:hover,
+.site-header .main-nav a.active { color: var(--ink); }
+.site-header .main-nav a.active::after { background: var(--pink-deep); }
+.site-header .icon-btn { color: var(--ink); }
+.site-header .icon-btn:hover { color: var(--pink-deep); }
+.site-header .lang-btn { border-color: rgba(44, 40, 35, .55); color: var(--ink); }
+/* Count badges keep deep-pink on white — clearly visible on the bar. */
+.site-header .count-pill { background: #FFFFFF; color: var(--pink-deep); }
 .brand-sub {
   font-size: 9.5px;
   font-weight: 600;
@@ -460,8 +483,10 @@ select.input {
   width: min(85vw, 360px);
   /* Explicitly opaque, literal color: the drawer background must never
      become translucent through a variable change, a stale cached
-     stylesheet or a glass effect. Do not replace with rgba/backdrop-filter. */
-  background: #FBF9F6;
+     stylesheet or a glass effect. Do not replace with rgba/backdrop-filter.
+     (Round 7: dusty rose #B07D85 — deliberately distinct from the
+     navbar's #E8A0B0.) */
+  background: #B07D85;
   z-index: 71;
   display: flex;
   flex-direction: column;
@@ -477,7 +502,13 @@ select.input {
 }
 /* Drawer brand sits outside .site-header now — color it explicitly
    (same wordmark treatment as the header brand). */
-.mobile-drawer .brand-main { color: var(--pink-hot); }
+/* Mobile drawer (round 7): its own dusty-rose #B07D85 (distinct from
+   the navbar) — white wordmark, links and icons stay readable on it
+   (still a literal, non-translucent color per the rule above). */
+.mobile-drawer .brand-main { color: #FFFFFF; }
+.mobile-drawer .brand-sub { color: rgba(255, 255, 255, .8); }
+.mobile-drawer .lang-btn { border-color: rgba(255, 255, 255, .65); color: #FFFFFF; }
+.mobile-drawer .lang-btn:hover { border-color: #FFFFFF; }
 .drawer-head {
   display: flex;
   align-items: center;
@@ -488,25 +519,28 @@ select.input {
 }
 .drawer-head .icon-btn { margin-inline-start: auto; }
 .drawer-links { padding: 10px 8px; display: flex; flex-direction: column; }
+.drawer-head .icon-btn { color: #FFFFFF; }
+.drawer-head .icon-btn:hover { color: rgba(255, 255, 255, .8); }
+.drawer-head { border-bottom: 1px solid rgba(255, 255, 255, .25); background: transparent; }
 .drawer-links a {
   padding: 14px 16px;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--ink);
-  border-bottom: 1px solid var(--line);
+  color: #FFFFFF;
+  border-bottom: 1px solid rgba(255, 255, 255, .22);
   transition: color .15s ease, background-color .15s ease;
 }
-.drawer-links a:hover { color: var(--pink-deep); }
+.drawer-links a:hover { color: rgba(255, 255, 255, .8); }
 /* Active item: clearly distinguishable inside the drawer too. */
 .drawer-links a.active {
-  color: var(--pink-deep);
-  background: var(--pink-wash);
-  box-shadow: inset 3px 0 0 var(--pink-hot);
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, .16);
+  box-shadow: inset 3px 0 0 #FFFFFF;
 }
-[dir="rtl"] .drawer-links a.active { box-shadow: inset -3px 0 0 var(--pink-hot); }
-.drawer-foot { margin-top: auto; padding: 18px 20px; border-top: 1px solid var(--line); }
+[dir="rtl"] .drawer-links a.active { box-shadow: inset -3px 0 0 #FFFFFF; }
+.drawer-foot { margin-top: auto; padding: 18px 20px; border-top: 1px solid rgba(255, 255, 255, .25); color: #FFFFFF; }
 
 /* Inline state notes (homepage rows) and grid error box (shop page):
    sections stay visible with an explanation instead of collapsing. */
@@ -590,12 +624,12 @@ select.input {
 }
 .product-card:hover .card-media { border-color: var(--pink); box-shadow: var(--shadow-1); }
 .card-link { display: block; width: 100%; height: 100%; }
-/* Main card image: object-fit contain with a SMALL inner padding —
-   the balance between the old cover (cropped packaging edges) and the
-   5% padding (read as too zoomed out): the full photograph stays
-   visible while filling the frame almost completely. Banners and
-   category cards are unaffected. */
-.card-media img { width: 100%; height: 100%; object-fit: contain; object-position: center; padding: 2%; transition: transform .4s ease; }
+/* Main card image: object-fit contain with NO inner padding — the
+   photograph fills the image area completely (no empty margin between
+   image and card border) while contain still guarantees the whole
+   product, edges included, stays visible; never cropped or stretched.
+   Banners and category cards are unaffected. */
+.card-media img { width: 100%; height: 100%; object-fit: contain; object-position: center; padding: 0; transition: transform .4s ease; }
 .product-card:hover .card-media img { transform: scale(1.04); }
 .card-badges {
   position: absolute;
@@ -904,6 +938,20 @@ select.input {
 .filter-sheet-foot { position: sticky; bottom: -26px; margin: 18px -20px -26px; padding: 14px 20px; background: var(--bg); border-top: 1px solid var(--line); }
 
 .load-more-wrap { display: flex; justify-content: center; margin-top: 34px; }
+/* Pink Load More (round 6): brand hot pink with white text; explicit
+   hover, active and disabled states; same dimensions as before. */
+.btn-loadmore {
+  background: var(--pink-hot);
+  border-color: var(--pink-hot);
+  color: #FFFFFF;
+}
+.btn-loadmore:hover:not(:disabled) {
+  background: var(--pink-deep);
+  border-color: var(--pink-deep);
+  color: #FFFFFF;
+}
+.btn-loadmore:active:not(:disabled) { transform: translateY(1px); }
+.btn-loadmore:disabled { opacity: .55; cursor: not-allowed; }
 
 /* ---------------- Product details ---------------- */
 .pdp-layout { display: grid; gap: 26px; }
@@ -959,12 +1007,18 @@ select.input {
   margin-top: 8px;
 }
 .shade-chip {
+  /* Two stacked lines when individual shade prices show: the shade
+     number on top, its price underneath, both centered (the old row
+     layout read as "01 EGP 450" side by side). Chips without a price
+     keep the old compact single-line pill via min-height. */
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   min-width: 26px;
-  height: 22px;
-  padding: 0 6px;
+  height: auto;
+  min-height: 22px;
+  padding: 3px 8px;
   border: 1px solid var(--champagne);
   border-radius: 999px;
   background: var(--surface);
@@ -976,12 +1030,16 @@ select.input {
 }
 .shade-chip:hover { border-color: var(--pink-hot); color: var(--pink-hot); }
 .shade-chip.is-out { opacity: .45; text-decoration: line-through; }
-/* Card chip with individual shade price (only when prices differ) */
+/* Card chip with individual shade price (only when prices differ):
+   second line, centered under the number. */
 .shade-chip .shade-chip-price {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   color: var(--pink-deep);
+  line-height: 1.15;
+  white-space: nowrap;
 }
+.shade-chip .num { line-height: 1.15; }
 .shade-chip.is-out .shade-chip-price { color: var(--ink-3); }
 /* "From" prefix on card prices when shade prices differ */
 .price-from {
@@ -1659,3 +1717,92 @@ select.input {
 @media (min-width: 720px) { .adm-form-grid.g4 { grid-template-columns: repeat(4, 1fr); } }
 .shade-stock-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .shade-stock-list .pill { font-size: 10.5px; }
+
+/* ---------------- Mandatory InstaPay deposit (checkout) ----------------
+   Pink-tinted block: instructions, the exact payment link button and
+   the mandatory screenshot uploader with live preview. */
+.co-deposit-instructions {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  background: var(--pink-wash);
+  border: 1px solid var(--champagne);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+#deposit-block h2 { color: var(--pink-deep); }
+.co-deposit-amounts {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pink-deep);
+  margin-top: 8px;
+}
+.summary-rows .row.deposit b { color: var(--pink-hot); }
+.proof-upload { margin-top: 14px; }
+.proof-upload-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+.proof-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.proof-preview { display: flex; align-items: center; gap: 12px; }
+.proof-preview img {
+  width: 92px;
+  height: 92px;
+  object-fit: cover;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  max-width: 100%;
+}
+.proof-actions { display: flex; flex-direction: column; gap: 6px; }
+.proof-error {
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--danger);
+}
+/* InstaPay remaining-balance note inside the payment block */
+#instapay-flow-note { color: var(--pink-deep); }
+
+/* ---------------- Payment status pills (tracking / admin) ---------------- */
+.pay-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.pay-pill-await { background: #FFF3CD; color: #8A6D1A; }
+.pay-pill-verified { background: #E4F5E9; color: #1E7A3C; }
+.pay-pill-rejected { background: #FDE8E8; color: #B3261E; }
+.pay-pill-partial { background: var(--pink-wash); color: var(--pink-deep); }
+.pay-pill-outstanding { background: var(--blush-wash, #F4EDE4); color: var(--ink-2); }
+.pay-pill-paid { background: #E4F5E9; color: #1E7A3C; }
+.track-events { margin-top: 12px; font-size: 12.5px; color: var(--ink-2); }
+.track-events li { margin-bottom: 6px; }
+@media (max-width: 640px) {
+  .proof-preview { flex-wrap: wrap; }
+}
+
+/* Admin order modal: deposit verification section */
+.od-payment {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.proof-box {
+  min-height: 60px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+#od-events { padding-inline-start: 18px; }

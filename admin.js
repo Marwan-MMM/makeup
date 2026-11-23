@@ -56,8 +56,18 @@
     return pill(I.t(I.statusKey(status)), map[status] || '');
   }
   function payPill(ps) {
-    var map = { paid: 'pill-ok', unpaid: 'pill-ink', failed: 'pill-danger', refunded: 'pill-warn' };
+    var map = { paid: 'pill-ok', unpaid: 'pill-ink', failed: 'pill-danger', refunded: 'pill-warn', partial: 'pill-warn' };
     return pill(I.t(I.payKey(ps)), map[ps] || '');
+  }
+  function depPill(ds) {
+    var map = {
+      awaiting_verification: ['pay_deposit_awaiting', 'pill-warn'],
+      verified: ['pay_deposit_verified', 'pill-ok'],
+      rejected: ['pay_deposit_rejected', 'pill-danger'],
+      awaiting_deposit: ['pay_deposit_none', '']
+    };
+    var m = map[ds || 'awaiting_deposit'] || [ds, ''];
+    return pill(I.t(m[0]), m[1]);
   }
   function stockPill(p) {
     if (Number(p.stock) === 0) return pill(I.t('ad_inv_out_alert'), 'pill-danger');
@@ -670,7 +680,7 @@
               '<button type="button" class="icon-sm" data-edit="' + esc(p.id) + '" aria-label="' + I.t('ad_edit') + '">' + UI.icon('edit', 15) + '</button>' +
               '<button type="button" class="icon-sm" data-del="' + esc(p.id) + '" aria-label="' + I.t('ad_delete') + '">' + UI.icon('trash', 15) + '</button>' +
               '</div></td></tr>';
-          }).join('') : emptyRow(7)) +
+          }).join('') : emptyRow(8)) +
           '</tbody></table></div>' +
           (list.length > prodUi.shown ? '<div class="adm-load-more"><button type="button" class="btn btn-ghost btn-sm" id="p-more">' + I.t('ad_load_more') + '</button></div>' : '');
 
@@ -1723,7 +1733,7 @@
 
   function renderOrders(host) {
     var STATUSES = ['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'cancelled'];
-    var PAYMENTS = ['unpaid', 'paid', 'failed', 'refunded'];
+    var PAYMENTS = ['unpaid', 'partial', 'paid', 'failed', 'refunded'];
 
     host.innerHTML =
       '<div class="adm-toolbar">' +
@@ -1734,6 +1744,9 @@
       '<select class="input" id="o-pay"><option value="all">' + I.t('ad_all_payment') + '</option>' +
       PAYMENTS.map(function (s) { return '<option value="' + s + '">' + I.t(I.payKey(s)) + '</option>'; }).join('') +
       '</select>' +
+      '<select class="input" id="o-dep"><option value="all">' + I.t('ad_all_deposit') + '</option>' +
+      ['awaiting_verification', 'verified', 'rejected'].map(function (s) { return '<option value="' + s + '">' + I.t('pay_deposit_' + (s === 'awaiting_verification' ? 'awaiting' : s)) + '</option>'; }).join('') +
+      '</select>' +
       '<input class="input" type="date" id="o-from" aria-label="' + I.t('ad_from_date') + '">' +
       '<input class="input" type="date" id="o-to" aria-label="' + I.t('ad_to_date') + '">' +
       '</div>' +
@@ -1742,15 +1755,17 @@
     q('#o-search').value = ordUi.search;
     q('#o-status').value = ordUi.status;
     q('#o-pay').value = ordUi.payment;
+    q('#o-dep').value = ordUi.deposit || 'all';
     q('#o-from').value = ordUi.from;
     q('#o-to').value = ordUi.to;
-    ['o-search', 'o-status', 'o-pay', 'o-from', 'o-to'].forEach(function (id) {
+    ['o-search', 'o-status', 'o-pay', 'o-dep', 'o-from', 'o-to'].forEach(function (id) {
       var el = q('#' + id);
       var ev = id === 'o-search' ? 'input' : 'change';
       el.addEventListener(ev, function () {
         ordUi.search = q('#o-search').value;
         ordUi.status = q('#o-status').value;
         ordUi.payment = q('#o-pay').value;
+        ordUi.deposit = q('#o-dep').value;
         ordUi.from = q('#o-from').value;
         ordUi.to = q('#o-to').value;
         ordUi.shown = 25;
@@ -1767,6 +1782,7 @@
           if (term && (o.order_number + ' ' + (o.phone || '') + ' ' + (o.full_name || '')).toLowerCase().indexOf(term) === -1) return false;
           if (ordUi.status !== 'all' && o.status !== ordUi.status) return false;
           if (ordUi.payment !== 'all' && o.payment_status !== ordUi.payment) return false;
+          if ((ordUi.deposit || 'all') !== 'all' && (o.deposit_status || 'awaiting_deposit') !== ordUi.deposit) return false;
           if (ordUi.from && new Date(o.created_at) < new Date(ordUi.from + 'T00:00:00')) return false;
           if (ordUi.to && new Date(o.created_at) > new Date(ordUi.to + 'T23:59:59')) return false;
           return true;
@@ -1775,7 +1791,7 @@
         q('#o-table').innerHTML =
           '<div class="adm-table-wrap"><table class="adm-table"><thead><tr>' +
           '<th>' + I.t('ad_th_order') + '</th><th>' + I.t('ad_th_customer') + '</th><th>' + I.t('ad_th_date') + '</th>' +
-          '<th>' + I.t('ad_th_status') + '</th><th>' + I.t('ad_th_payment') + '</th><th>' + I.t('ad_th_total') + '</th><th></th>' +
+          '<th>' + I.t('ad_th_status') + '</th><th>' + I.t('ad_th_payment') + '</th><th>' + I.t('ad_th_deposit') + '</th><th>' + I.t('ad_th_total') + '</th><th></th>' +
           '</tr></thead><tbody>' +
           (rows.length ? rows.map(function (o) {
             return '<tr>' +
@@ -1784,10 +1800,11 @@
               '<td>' + I.fmtDateTime(o.created_at) + '</td>' +
               '<td>' + statusPill(o.status) + '</td>' +
               '<td>' + payPill(o.payment_status) + '</td>' +
+              '<td>' + depPill(o.deposit_status) + '</td>' +
               '<td class="num-cell"><b>' + money(o.total) + '</b></td>' +
               '<td><div class="row-actions"><button type="button" class="icon-sm" data-open="' + esc(o.id) + '" aria-label="' + I.t('ad_order_details') + '">' + UI.icon('eye', 15) + '</button></div></td>' +
               '</tr>';
-          }).join('') : emptyRow(7)) +
+          }).join('') : emptyRow(8)) +
           '</tbody></table></div>' +
           (list.length > ordUi.shown ? '<div class="adm-load-more"><button type="button" class="btn btn-ghost btn-sm" id="o-more">' + I.t('ad_load_more') + '</button></div>' : '');
 
@@ -1822,7 +1839,7 @@
       }).join('');
 
       var STATUSES = ['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'cancelled'];
-      var PAYMENTS = ['unpaid', 'paid', 'failed', 'refunded'];
+      var PAYMENTS = ['unpaid', 'partial', 'paid', 'failed', 'refunded'];
 
       var m = modal(I.t('ad_order_details') + ' \u2014 ' + order.order_number,
         '<div class="od-grid">' +
@@ -1845,6 +1862,36 @@
         '<div class="od-kv"><span>' + I.t('cart_shipping') + '</span><b class="num">' + money(order.shipping_fee) + '</b></div>' +
         '<div class="od-kv"><span>' + I.t('co_total') + '</span><b class="num">' + money(order.total) + '</b></div>' +
         '</div>' +
+        '</div>' +
+
+        '<div class="od-payment mt-3">' +
+        '<p class="adm-section-title">' + I.t('ad_deposit_title') + '</p>' +
+        '<div class="od-kv"><span>' + I.t('tr_deposit_amount') + '</span><b class="num">' + money(order.deposit_amount || 0) + ' \u00b7 InstaPay</b> ' + depPill(order.deposit_status) + '</div>' +
+        '<div class="od-kv"><span>' + I.t('tr_remaining_amount') + '</span><b class="num">' + money(order.remaining_amount || 0) + '</b> ' + pill(I.t(I.payKey(order.payment_status)), order.payment_status === 'paid' ? 'pill-ok' : (order.payment_status === 'partial' ? 'pill-warn' : '')) + '</div>' +
+        (order.deposit_submitted_at ? '<div class="od-kv"><span>' + I.t('ad_dep_submitted') + '</span><b>' + I.fmtDateTime(order.deposit_submitted_at) + '</b></div>' : '') +
+        (order.deposit_verified_at ? '<div class="od-kv"><span>' + I.t('ad_dep_verified') + '</span><b>' + I.fmtDateTime(order.deposit_verified_at) + (order.deposit_verified_by ? ' \u00b7 ' + esc(String(order.deposit_verified_by).slice(0, 8)) : '') + '</b></div>' : '') +
+        (order.deposit_rejection_reason ? '<div class="od-kv"><span>' + I.t('tr_rejection_reason') + '</span><b>' + esc(order.deposit_rejection_reason) + '</b></div>' : '') +
+        (order.remaining_verified_at ? '<div class="od-kv"><span>' + I.t('ad_dep_verified') + ' (' + I.t('tr_remaining_amount') + ')</span><b>' + I.fmtDateTime(order.remaining_verified_at) + '</b></div>' : '') +
+        '<div class="proof-review">' +
+        '<p class="hint mb-1">' + I.t('ad_dep_proof_hint') + '</p>' +
+        '<div class="proof-box" id="od-proof-deposit">' + I.t('ad_dep_loading') + '</div>' +
+        (order.payment_method === 'instapay' && order.deposit_status === 'verified'
+          ? '<p class="hint mt-2">' + I.t('ad_rem_proof_hint') + '</p><div class="proof-box" id="od-proof-remaining">' + (order.remaining_proof_path ? I.t('ad_dep_loading') : I.t('ad_rem_no_proof')) + '</div>' : '') +
+        '</div>' +
+        (order.deposit_status === 'awaiting_verification'
+          ? '<div class="adm-form-grid g2 mt-2" id="od-deposit-actions">' +
+            '<div class="field"><label>' + I.t('ad_dep_reject_reason') + '</label>' +
+            '<input class="input" id="od-reject-reason" placeholder="' + I.t('ad_dep_reject_ph') + '"></div>' +
+            '<div class="field"><label>&nbsp;</label><div class="flex-between">' +
+            '<button type="button" class="btn btn-primary btn-sm" id="od-dep-approve">' + I.t('ad_dep_approve') + '</button>' +
+            '<button type="button" class="btn btn-danger btn-sm" id="od-dep-reject">' + I.t('ad_dep_reject') + '</button>' +
+            '</div></div></div>' : '') +
+        (order.payment_method === 'instapay' && order.deposit_status === 'verified' && order.remaining_status === 'awaiting_verification'
+          ? '<div class="flex-between mt-2" id="od-remaining-actions">' +
+            '<button type="button" class="btn btn-primary btn-sm" id="od-rem-approve">' + I.t('ad_rem_approve') + '</button>' +
+            '<button type="button" class="btn btn-danger btn-sm" id="od-rem-reject">' + I.t('ad_rem_reject') + '</button>' +
+            '</div>' : '') +
+        '<div class="track-events"><p class="adm-section-title">' + I.t('ad_events_title') + '</p><ul id="od-events" class="track-events"><li>' + I.t('ad_dep_loading') + '</li></ul></div>' +
         '</div>' +
 
         '<div class="adm-form-grid g3 mt-3">' +
@@ -1894,6 +1941,69 @@
           UI.toast(err.message || I.t('error_generic'), 'error');
         });
       });
+
+      /* ---- payment screenshot review + verification (async fills) ---- */
+      function loadProof(path, hostId) {
+        var host = q('#' + hostId, m.body);
+        if (!host) return;
+        if (state.preview) {
+          /* demo preview: the demo proof is an in-memory data URL */
+          DB.admin.getProofUrl(path).then(function (url) {
+            if (!url) { host.textContent = I.t('ad_dep_no_proof'); return; }
+            host.innerHTML = '<img src="' + url + '" alt="payment proof" style="max-width:100%;max-height:280px;object-fit:contain;border-radius:8px">';
+          }).catch(function () { host.textContent = I.t('ad_dep_no_proof'); });
+          return;
+        }
+        DB.admin.getProofUrl(path).then(function (url) {
+          if (!url) { host.textContent = I.t('ad_dep_no_proof'); return; }
+          host.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener noreferrer"><img src="' + url + '" alt="payment proof" style="max-width:100%;max-height:280px;object-fit:contain;border-radius:8px"></a>';
+        }).catch(function (err) {
+          host.textContent = err.message || I.t('ad_dep_no_proof');
+        });
+      }
+      if (order.deposit_proof_path) loadProof(order.deposit_proof_path, 'od-proof-deposit');
+      var remHost = q('#od-proof-remaining', m.body);
+      if (remHost && order.remaining_proof_path) loadProof(order.remaining_proof_path, 'od-proof-remaining');
+
+      DB.admin.getOrderEvents(order.id).then(function (events) {
+        var ul = q('#od-events', m.body);
+        if (!ul) return;
+        ul.innerHTML = (events || []).map(function (ev) {
+          return '<li><b>' + esc(I.t('ev_' + ev.event_type)) + '</b> \u00b7 ' +
+            I.fmtDateTime(ev.created_at) + ' \u00b7 ' + esc(ev.actor || '') +
+            (ev.amount ? ' \u00b7 <span class="num">' + money(ev.amount) + '</span>' : '') +
+            (ev.note ? '<div class="t-sub">' + esc(ev.note) + '</div>' : '') + '</li>';
+        }).join('') || '<li>' + I.t('ad_none') + '</li>';
+      }).catch(function () {
+        var ul2 = q('#od-events', m.body);
+        if (ul2) ul2.innerHTML = '<li>' + I.t('ad_none') + '</li>';
+      });
+
+      function runVerify(kind, approve) {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        var reasonInput = q('#od-reject-reason', m.body);
+        var reason = reasonInput ? reasonInput.value.trim() : '';
+        if (!approve && !reason) { UI.toast(I.t('ad_dep_reason_required'), 'error'); return; }
+        var call = kind === 'deposit'
+          ? DB.admin.verifyDeposit(order.id, approve, reason)
+          : DB.admin.verifyRemainingPayment(order.id, approve, approve ? null : reason);
+        call.then(function () {
+          cache.orders = null;
+          UI.toast(I.t(approve ? 'ad_dep_approved' : 'ad_dep_rejected'), 'ok');
+          m.close();
+          onDone && onDone();
+        }).catch(function (err) {
+          UI.toast(err.message || I.t('error_generic'), 'error');
+        });
+      }
+      var approveBtn = q('#od-dep-approve', m.body);
+      if (approveBtn) approveBtn.addEventListener('click', function () { runVerify('deposit', true); });
+      var rejectBtn = q('#od-dep-reject', m.body);
+      if (rejectBtn) rejectBtn.addEventListener('click', function () { runVerify('deposit', false); });
+      var remApprove = q('#od-rem-approve', m.body);
+      if (remApprove) remApprove.addEventListener('click', function () { runVerify('remaining', true); });
+      var remReject = q('#od-rem-reject', m.body);
+      if (remReject) remReject.addEventListener('click', function () { runVerify('remaining', false); });
 
       var cancelBtn = q('#od-cancel', m.body);
       if (cancelBtn) {
@@ -2205,6 +2315,13 @@
         '</div>' +
 
         '<div class="adm-card"><h2>' + I.t('ad_set_store') + '</h2>' +
+        /* Migration guard: when the connected database has not run the
+           shade-price-display migration yet, the column is missing and
+           saving the switch would fail with a Postgres error — say so
+           here instead of leaving the toggle silently broken. */
+        (!state.preview && s.show_shade_prices === undefined
+          ? '<p class="hint mb-2" style="color:var(--danger)">' + I.t('ad_set_migration_missing') + '</p>'
+          : '') +
         switchRow('sw-subs', I.t('ad_set_show_subs'), s.show_subcategories) +
         switchRow('sw-flash', I.t('ad_set_show_flash'), s.show_flash_sales) +
         switchRow('sw-feat', I.t('ad_set_show_featured'), s.show_featured) +
@@ -2317,6 +2434,10 @@
           if (results[0].error) throw results[0].error;
           if (results[1].error) throw results[1].error;
           cache.settings = null; cache.homepage = null;
+          /* Warm the shared settings cache with the fresh values so any
+             storefront render on this session reads the saved switch
+             immediately (customers get it on their next page load). */
+          if (typeof DB !== 'undefined' && DB.getSettings) DB.getSettings({ fresh: true }).catch(function () {});
           UI.toast(I.t('ad_set_saved'), 'ok');
           renderSettings(host);
         }).catch(function (err) {
