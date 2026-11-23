@@ -2367,7 +2367,7 @@
         '<th>' + I.t('ad_banner_image') + '</th><th>' + I.t('ad_th_name') + '</th><th>' + I.t('ad_th_status') + '</th><th></th>' +
         '</tr></thead><tbody>' +
         (banners.length ? banners.map(function (b) {
-          return '<tr><td><span class="adm-thumb" style="width:64px">' +
+          return '<tr><td><span class="adm-thumb">' +
             (b.image_url ? '<img src="' + esc(b.image_url) + '" alt="">' : UI.phHtml(b.title_en || 'B', 1)) + '</span></td>' +
             '<td><div class="t-name">' + esc(b.title_en || '') + '</div><div class="t-sub">' + esc(b.title_ar || '') + '</div></td>' +
             '<td>' + (b.is_active ? pill(I.t('ad_f_active'), 'pill-ok') : pill(I.t('ad_f_inactive'), '')) + '</td>' +
