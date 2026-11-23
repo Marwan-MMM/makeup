@@ -20,7 +20,7 @@
 
   var CATEGORIES = [
     { id: 'cat-makeup', slug: 'makeup', parent_id: null, name_en: 'Makeup', name_ar: 'المكياج', image_url: '', display_order: 1, is_active: true, show_on_home: true },
-    { id: 'cat-perfumes', slug: 'perfumes', parent_id: null, name_en: 'Perfumes', name_ar: 'العطور', image_url: '', display_order: 2, is_active: true, show_on_home: true },
+    { id: 'cat-perfumes', slug: 'perfumes', parent_id: null, name_en: 'Perfumes and Body Splashes', name_ar: 'العطور وبودي سبلاش', image_url: '', display_order: 2, is_active: true, show_on_home: true },
 
     { id: 'sub-foundation', slug: 'foundation', parent_id: 'cat-makeup', name_en: 'Foundation', name_ar: 'كريم أساس', display_order: 1, is_active: true },
     { id: 'sub-concealer', slug: 'concealer', parent_id: 'cat-makeup', name_en: 'Concealer', name_ar: 'كونسيلر', display_order: 2, is_active: true },

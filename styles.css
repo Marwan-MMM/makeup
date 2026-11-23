@@ -308,7 +308,7 @@ select.input {
   position: sticky;
   top: 0;
   z-index: 60;
-  background: #E8A0B0;
+  background: #FDAFC9;
   border-bottom: 1px solid rgba(0, 0, 0, .08);
 }
 .header-grid {
@@ -340,22 +340,31 @@ select.input {
   letter-spacing: .1em;
   text-transform: uppercase;
 }
-/* Header brand wordmark: "Blush" (brand-main) large and smooth, dark
-   ink for readability on the light pink; "Beauty" (brand-sub) small,
-   visually secondary. Covers the mobile drawer brand too, which lives
-   inside the header element. Footer/admin wordmarks unchanged. */
-.site-header .brand-main {
-  color: var(--ink);
-  font-weight: 600;
-  font-size: 21px;
-  letter-spacing: .04em;
-  text-transform: none;
+/* Header brand wordmark (round 8): the EXACT pre-Run-7 typography is
+   restored by simply re-scoping the color — the base rules (.brand-main
+   19px / weight 700 / letter-spacing .1em / uppercase, .brand-sub 9.5px
+   / weight 600 / letter-spacing .34em) provide the original Playfair
+   Display sizes untouched. The wordmark is painted with the site's own
+   main background color #FBF9F6 (:root --bg), per the round 8 request;
+   navbar background stays #E8A0B0 and no other header element changes
+   color. Footer/admin wordmarks unchanged. */
+/* Round 8 addendum: the header wordmark becomes the same deliberately
+   designed two-line logo as the drawer — ONE vertically stacked
+   container with text-align: left, so the left edge of "Blush" and the
+   left edge of "Beauty" align exactly (no independent centering, no
+   baseline/side-by-side row). Sizes stay the recovered originals
+   (19px / 9.5px, Playfair via --font-display); colors unchanged. */
+.site-header .brand {
+  display: block;
+  text-align: left;
+  line-height: 1;
 }
-.site-header .brand-sub {
-  color: rgba(44, 40, 35, .72);
-  font-size: 10px;
-  letter-spacing: .3em;
-}
+.site-header .brand-main { color: #FBF9F6; display: block; }
+/* Round 8 micro-adjustment: "Beauty" nudged 2px right of "Blush" — a
+   physical margin-left (not margin-inline-start) so the shift points
+   to the right in RTL too. Subtle: the word still reads as sitting
+   directly underneath "Blush". */
+.site-header .brand-sub { color: #FBF9F6; display: block; margin-top: 3px; margin-left: 2px; }
 .site-header .main-nav a { color: rgba(44, 40, 35, .85); }
 .site-header .main-nav a:hover,
 .site-header .main-nav a.active { color: var(--ink); }
@@ -484,9 +493,9 @@ select.input {
   /* Explicitly opaque, literal color: the drawer background must never
      become translucent through a variable change, a stale cached
      stylesheet or a glass effect. Do not replace with rgba/backdrop-filter.
-     (Round 7: dusty rose #B07D85 — deliberately distinct from the
+     (Round 8: soft pink #FDAFC9 — deliberately distinct from the
      navbar's #E8A0B0.) */
-  background: #B07D85;
+  background: #FDAFC9;
   z-index: 71;
   display: flex;
   flex-direction: column;
@@ -500,47 +509,63 @@ select.input {
 @media (prefers-reduced-motion: reduce) {
   .mobile-drawer, .drawer-backdrop { transition: none; }
 }
+/* Drawer brand (round 8 addendum): identical two-line LEFT-aligned
+   wordmark as the header — one stacked container, text-align: left,
+   left edges of "Blush" and "Beauty" exactly aligned; original
+   proportions (19px Playfair / 9.5px) untouched. The centering rules
+   and the letter-spacing text-indent compensation are gone: they only
+   existed for the centered variant and would break left alignment. */
+.mobile-drawer .brand {
+  display: block;
+  text-align: left;
+  line-height: 1;
+}
+.mobile-drawer .brand-main { display: block; }
+/* Same 2px right nudge as the header (round 8 micro-adjustment) — both
+   wordmarks stay visually identical. */
+.mobile-drawer .brand-sub { display: block; margin-top: 3px; margin-left: 2px; letter-spacing: .34em; }
 /* Drawer brand sits outside .site-header now — color it explicitly
    (same wordmark treatment as the header brand). */
-/* Mobile drawer (round 7): its own dusty-rose #B07D85 (distinct from
-   the navbar) — white wordmark, links and icons stay readable on it
-   (still a literal, non-translucent color per the rule above). */
-.mobile-drawer .brand-main { color: #FFFFFF; }
-.mobile-drawer .brand-sub { color: rgba(255, 255, 255, .8); }
-.mobile-drawer .lang-btn { border-color: rgba(255, 255, 255, .65); color: #FFFFFF; }
-.mobile-drawer .lang-btn:hover { border-color: #FFFFFF; }
+/* Mobile drawer (round 8 addendum): the soft pink #FDAFC9 background
+   stays; every drawer text element and control now uses a warm
+   off-white ivory #FFF7EF — navigation labels, the brand wordmark, the
+   language switch and icons all share it (hover steps up to pure
+   white). The active item sits on a deeper rose wash so the highlighted
+   state still reads clearly without touching the drawer background. */
+.mobile-drawer .brand-main { color: #FFF7EF; }
+.mobile-drawer .brand-sub { color: rgba(255, 247, 239, .85); }
+.mobile-drawer .lang-btn { border-color: rgba(255, 247, 239, .75); color: #FFF7EF; }
+.mobile-drawer .lang-btn:hover { border-color: #FFF7EF; color: #FFFFFF; }
 .drawer-head {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 18px 20px;
-  border-bottom: 1px solid var(--line);
-  background: var(--blush-wash);
+  border-bottom: 1px solid rgba(255, 247, 239, .28);
+  background: transparent;
 }
-.drawer-head .icon-btn { margin-inline-start: auto; }
+.drawer-head .icon-btn { margin-inline-start: auto; color: #FFF7EF; }
+.drawer-head .icon-btn:hover { color: #FFFFFF; }
 .drawer-links { padding: 10px 8px; display: flex; flex-direction: column; }
-.drawer-head .icon-btn { color: #FFFFFF; }
-.drawer-head .icon-btn:hover { color: rgba(255, 255, 255, .8); }
-.drawer-head { border-bottom: 1px solid rgba(255, 255, 255, .25); background: transparent; }
 .drawer-links a {
   padding: 14px 16px;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: .08em;
   text-transform: uppercase;
-  color: #FFFFFF;
-  border-bottom: 1px solid rgba(255, 255, 255, .22);
+  color: #FFF7EF;
+  border-bottom: 1px solid rgba(255, 247, 239, .25);
   transition: color .15s ease, background-color .15s ease;
 }
-.drawer-links a:hover { color: rgba(255, 255, 255, .8); }
-/* Active item: clearly distinguishable inside the drawer too. */
+.drawer-links a:hover { color: #FFFFFF; }
+/* Active item: deeper rose wash keeps the ivory label readable. */
 .drawer-links a.active {
-  color: #FFFFFF;
-  background: rgba(255, 255, 255, .16);
-  box-shadow: inset 3px 0 0 #FFFFFF;
+  color: #FFF7EF;
+  background: rgba(176, 125, 133, .45);
+  box-shadow: inset 3px 0 0 #FFF7EF;
 }
-[dir="rtl"] .drawer-links a.active { box-shadow: inset -3px 0 0 #FFFFFF; }
-.drawer-foot { margin-top: auto; padding: 18px 20px; border-top: 1px solid rgba(255, 255, 255, .25); color: #FFFFFF; }
+[dir="rtl"] .drawer-links a.active { box-shadow: inset -3px 0 0 #FFF7EF; }
+.drawer-foot { margin-top: auto; padding: 18px 20px; border-top: 1px solid rgba(255, 247, 239, .25); color: #FFF7EF; }
 
 /* Inline state notes (homepage rows) and grid error box (shop page):
    sections stay visible with an explanation instead of collapsing. */

@@ -645,7 +645,9 @@
     drawer.hidden = true;
     drawer.innerHTML =
       '<div class="drawer-head">' +
-      '<span class="brand-main">BLUSH</span><span class="brand-sub">BEAUTY</span>' +
+      /* Two-part wordmark wrapped in .brand so the drawer CSS can stack
+         it ("Blush" above "Beauty") independently of the close button. */
+      '<span class="brand"><span class="brand-main">BLUSH</span><span class="brand-sub">BEAUTY</span></span>' +
       '<button type="button" class="icon-btn drawer-close" data-i18n-aria="close">' + icon('x', 22) + '</button>' +
       '</div>' +
       '<div class="drawer-links">' + navHtml +
