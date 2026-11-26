@@ -1881,10 +1881,29 @@ select.input {
   transition: transform .26s cubic-bezier(.2, .8, .25, 1);
 }
 .bb-popup-backdrop.open .bb-popup { transform: none; }
-.bb-popup.has-image { max-width: 640px; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+/* Run 13: the popup responds to the uploaded image's real aspect ratio.
+   The image column width comes from --bb-pop-col (set by JS from the
+   measured natural ratio, clamped 150–400px); the image itself renders
+   with object-fit: contain at its natural proportions — never stretched,
+   never cropped — and large images are capped to the viewport. */
+.bb-popup.has-image {
+  max-width: min(92vw, 760px);
+  display: grid;
+  grid-template-columns: var(--bb-pop-col, 44%) minmax(0, 1fr);
+  overflow: hidden;
+}
 .bb-popup.has-image .bb-popup-body { max-height: min(86vh, 640px); overflow-y: auto; }
-.bb-popup-media { position: relative; min-height: 220px; }
-.bb-popup-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.bb-popup-media { position: relative; display: flex; align-items: center; justify-content: center; background: var(--surface-2); }
+.bb-popup-media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(56vh, 440px);
+  object-fit: contain;
+}
+/* Image-only campaign: the card hugs the image, capped to the viewport. */
+.bb-popup.is-image-only { width: auto; max-width: min(92vw, 640px); }
+.bb-popup.is-image-only .bb-popup-media img { max-height: min(70vh, 560px); margin: 0 auto; }
 .bb-popup-body { padding: 26px 24px; text-align: center; }
 .bb-popup-desc { color: var(--ink-2); font-size: 14px; margin-top: 10px; }
 .bb-popup-discount {
@@ -1906,7 +1925,8 @@ select.input {
 }
 @media (max-width: 640px) {
   .bb-popup.has-image { grid-template-columns: 1fr; }
-  .bb-popup-media { min-height: 170px; }
+  .bb-popup-media img { max-height: 40vh; }
+  .bb-popup.is-image-only .bb-popup-media img { max-height: 48vh; }
   .bb-popup-body { padding: 20px 18px; }
 }
 
@@ -1982,30 +2002,64 @@ select.input {
   box-shadow: var(--shadow-1), 0 0 0 1px var(--line-strong) inset;
   position: relative;
   overflow: hidden;
-  transition: transform 4s cubic-bezier(.15, .85, .28, 1);
+  /* Run 13: moderately faster spin (7 rotations in 4.6s on the JS side)
+     with the same smooth cubic-bezier deceleration. */
+  transition: transform 4.6s cubic-bezier(.15, .85, .28, 1);
 }
+/* Run 13: radial dividing lines between segments (overlay above the
+   colors, below the labels; generated per segment count in JS). */
+.bb-wheel-lines {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+/* Run 13: labels are vertically centered INSIDE their segment — the
+   text block sits at ~60% of the radius (padding-top 20% of the disc
+   width measured from the rim puts its middle mid-segment) — and
+   long prize names WRAP instead of being cut off with ellipses. Font
+   size classes scale with segment count and text length (set in JS). */
 .bb-wheel-label {
   position: absolute;
   inset: 0;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 9px;
+  padding-top: 20%;
   pointer-events: none;
 }
 .bb-wheel-label b {
   display: block;
-  max-width: 34%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.18;
   font-family: var(--font-body);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, .45);
 }
-.bb-wheel-stage-admin .bb-wheel-disc { transition: transform 3.4s ease-out; }
+.bb-wheel-label b.lbl-10 { font-size: 10px; line-height: 1.14; }
+.bb-wheel-label b.lbl-9 { font-size: 9px; line-height: 1.12; }
+.bb-wheel-label b.lbl-sm { font-size: 9.5px; line-height: 1.14; }
+.bb-wheel-label b.lbl-xs { font-size: 8.5px; line-height: 1.12; }
+/* Run 13: banner for an unconsumed order-earned free spin. */
+.bb-wheel-free {
+  margin: 12px auto 0;
+  max-width: 340px;
+  padding: 10px 12px;
+  background: var(--pink-wash);
+  border: 1px solid var(--pink-deep);
+  border-radius: var(--radius-md, 10px);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bb-wheel-free b { color: var(--pink-deep); font-size: 13.5px; }
+.bb-wheel-free span { font-size: 12.5px; color: var(--ink-2); }
+.bb-wheel-stage-admin .bb-wheel-disc { transition: transform 4.6s cubic-bezier(.15, .85, .28, 1); }
 .bb-wheel-instr { margin-top: 10px; }
 .bb-wheel-actions { margin-top: 14px; }
 .bb-wheel-result { margin-top: 14px; text-align: center; }

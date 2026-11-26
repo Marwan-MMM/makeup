@@ -953,10 +953,10 @@
     var back = document.createElement('div');
     back.className = 'bb-popup-backdrop';
     back.innerHTML =
-      '<div class="bb-popup' + (hasImage && hasText ? ' has-image' : '') + '" role="dialog" aria-modal="true">' +
+      '<div class="bb-popup' + (hasImage && hasText ? ' has-image' : '') + (hasImage && !hasText ? ' is-image-only' : '') + '" role="dialog" aria-modal="true">' +
       '<button type="button" class="bb-popup-x icon-btn" aria-label="' + esc(I.t('close')) + '">' + icon('x', 20) + '</button>' +
       (hasImage ? '<div class="bb-popup-media"><img src="' + esc(cfg.popup_image_url) + '" alt="' +
-        esc(I.lang === 'ar' ? (cfg.popup_title_ar || cfg.popup_title_en || '') : (cfg.popup_title_en || cfg.popup_title_ar || '')) + '"></div>' : '') +
+        esc(I.lang === 'ar' ? (cfg.popup_title_ar || cfg.popup_title_en || '') : (cfg.popup_title_en || cfg.popup_title_ar || '')) + '" decoding="async"></div>' : '') +
       (hasText ? '<div class="bb-popup-body">' +
         (cfg.popup_subtitle_en || cfg.popup_subtitle_ar ? '<p class="overline">' +
           esc(I.lang === 'ar' ? (cfg.popup_subtitle_ar || cfg.popup_subtitle_en) : (cfg.popup_subtitle_en || cfg.popup_subtitle_ar)) + '</p>' : '') +
@@ -973,6 +973,28 @@
       '</div>';
     document.body.appendChild(back);
     document.body.classList.add('no-scroll');
+    /* Run 13: the popup adapts to the uploaded image's REAL aspect
+       ratio — proportions are always preserved (object-fit: contain,
+       no stretching, no cropping) and large images are capped to the
+       viewport. The side-by-side layout's image column is sized from
+       the measured ratio so the composition stays balanced for wide,
+       tall and square images alike; mobile falls back to one column. */
+    if (hasImage) {
+      var popEl = back.querySelector('.bb-popup');
+      var imgEl = back.querySelector('.bb-popup-media img');
+      var fitImage = function () {
+        var w = imgEl.naturalWidth || 0, h = imgEl.naturalHeight || 0;
+        if (!w || !h || !hasText) return;
+        var ar = w / h;
+        popEl.style.setProperty('--bb-pop-ar', ar.toFixed(4));
+        var capH = Math.min(window.innerHeight || 800, 900) * 0.56;
+        var colW = Math.round(Math.max(150, Math.min(capH * ar, 400)));
+        popEl.style.setProperty('--bb-pop-col', colW + 'px');
+      };
+      if (imgEl.complete && imgEl.naturalWidth) fitImage();
+      imgEl.addEventListener('load', fitImage);
+      imgEl.addEventListener('error', fitImage);
+    }
     /* Activation on the next frame so the CSS entrance transition runs
        (the stylesheet disables transforms under prefers-reduced-motion). */
     requestAnimationFrame(function () {
@@ -1025,6 +1047,7 @@
     if (/not active/i.test(m)) return 'wheel_err_inactive';
     if (/administrator review|temporarily unavailable/i.test(m)) return 'wheel_err_review';
     if (/too many attempts/i.test(m)) return 'wheel_err_rate';
+    if (/free spin from a qualifying order/i.test(m)) return 'wheel_no_entitlement';
     return null;
   }
 
@@ -1032,7 +1055,11 @@
     if (!promoPageAllowed()) return;
     if (document.getElementById(WHEEL_FAB_ID)) return;
     DB.wheelState().then(function (st) {
-      if (!st || !st.active || st.participated) return;
+      /* Run 13: the FAB also stays available when the visitor already
+         used their regular spin but holds an unconsumed order-earned
+         free spin (free_spin_available comes from wheel_public_state,
+         computed server-side for THIS identity only). */
+      if (!st || !st.active || (st.participated && !st.free_spin_available)) return;
       var segs = (st.segments || []).filter(function (s) { return !!s; });
       if (segs.length < 2) return;
       var fab = document.createElement('button');
@@ -1060,6 +1087,14 @@
     return 'conic-gradient(' + stops.join(', ') + ')';
   }
 
+  /* Run 13: thin radial dividing lines between the segments, generated
+     with the SAME segment count as the colors so they always line up.
+     Rendered as an overlay above the color gradient, below the labels. */
+  function wheelDividers(n) {
+    var step = (360 / n).toFixed(2);
+    return 'repeating-conic-gradient(from -0.35deg, rgba(255,255,255,.85) 0deg .7deg, transparent .7deg ' + step + 'deg)';
+  }
+
   function openWheelModal(st, segs) {
     var fab = document.getElementById(WHEEL_FAB_ID);
     var back = document.createElement('div');
@@ -1073,14 +1108,27 @@
       '<div class="bb-wheel-stage">' +
       '<div class="bb-wheel-pointer">' + icon('chevDown', 18) + '</div>' +
       '<div class="bb-wheel-disc" style="background:' + wheelGradient(segs) + '">' +
+      '<div class="bb-wheel-lines" style="background:' + wheelDividers(segs.length) + '" aria-hidden="true"></div>' +
       segs.map(function (s, i) {
         var seg = 360 / segs.length;
         var mid = i * seg + seg / 2;
+        /* Run 13: each label's width follows its segment's chord at the
+           label radius, and the font scales with segment count and text
+           length — long prize names WRAP onto several lines instead of
+           being cut off with ellipses. */
+        var maxW = Math.min(46, Math.round(63 * Math.sin(Math.PI / segs.length)));
+        var text = wheelLang(st, s.label_en, s.label_ar);
+        var sizeCls = segs.length > 8 ? ' lbl-9' : (segs.length > 6 ? ' lbl-10' : '');
+        if (text.length > 26) sizeCls += ' lbl-xs';
+        else if (text.length > 16) sizeCls += ' lbl-sm';
         return '<span class="bb-wheel-label" style="transform:rotate(' + mid.toFixed(1) + 'deg)">' +
-          '<b>' + esc(wheelLang(st, s.label_en, s.label_ar)) + '</b></span>';
+          '<b class="' + sizeCls.trim() + '" style="max-width:' + maxW + '%">' + esc(text) + '</b></span>';
       }).join('') +
       '</div></div>' +
       (wheelLang(st, st.instructions_en, st.instructions_ar) ? '<p class="hint bb-wheel-instr">' + esc(wheelLang(st, st.instructions_en, st.instructions_ar)) + '</p>' : '') +
+      (st.free_spin_available ? '<div class="bb-wheel-free">' +
+        '<b>' + esc(I.t('wheel_free_title')) + '</b>' +
+        '<span>' + esc(I.t(st.participated ? 'wheel_free_ready' : 'wheel_free_after')) + '</span></div>' : '') +
       '<div class="bb-wheel-actions"><button type="button" class="btn btn-primary" id="bb-wheel-go">' + esc(I.t('wheel_spin')) + '</button></div>' +
       '<div class="bb-wheel-result" hidden></div>' +
       '</div>';
@@ -1180,7 +1228,11 @@
       spinning = true;
       go.disabled = true;
       go.textContent = I.t('wheel_spinning');
-      DB.wheelSpin(st.campaign_id).then(function (r) {
+      /* Run 13: when the regular spin is already used, this click
+         consumes the order-earned entitlement — verified and claimed
+         atomically on the server, never trusted from the browser. */
+      var useEntitlement = !!(st.free_spin_available && st.participated);
+      DB.wheelSpin(st.campaign_id, { consumeEntitlement: useEntitlement }).then(function (r) {
         /* Choreograph the visual wheel to the SERVER-decided segment. */
         var idx = segs.findIndex(function (s) { return String(s.position) === String(r.position || (r.prize && r.prize.position)); });
         if (idx === -1) idx = 0;
@@ -1190,15 +1242,18 @@
         if (reduced) {
           target = rotation;
         } else {
-          /* centre of the winning segment under the top pointer */
+          /* centre of the winning segment under the top pointer.
+             Run 13: 7 full rotations in 4.6s (was 5 in 4.2s) — a
+             moderately faster spin that keeps the smooth cubic-bezier
+             deceleration and always lands on the server's segment. */
           var jitter = (Math.random() - 0.5) * seg * 0.5;
-          var desired = rotation - (rotation % 360) + 360 * 5 + (360 - (idx * seg + seg / 2 + jitter));
+          var desired = rotation - (rotation % 360) + 360 * 7 + (360 - (idx * seg + seg / 2 + jitter));
           target = desired;
         }
         if (!reduced) {
           disc.style.transform = 'rotate(' + target.toFixed(2) + 'deg)';
           rotation = target;
-          setTimeout(function () { showResult(r); }, 4200);
+          setTimeout(function () { showResult(r); }, 4800);
         } else {
           showResult(r);
         }

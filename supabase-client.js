@@ -777,6 +777,11 @@
          The server verifies the object exists and computes the deposit
          amount itself — the browser never sends amounts. */
       payment: { proof_path: String((payload.payment && payload.payment.proof_path) || '') },
+      /* Run 13: the visitor's server-issued wheel identity uuid, so a
+         qualifying order can grant the order-based free spin. The uuid
+         alone cannot mint identities — the HMAC secret stays on the
+         server; the Edge Function (service role) persists it. */
+      wheel_participant_uuid: wheelTokenUuid() || undefined,
       client_request_id: payload.client_request_id || genUuid()
     };
 
@@ -1321,14 +1326,20 @@
       });
   }
 
-  /* Spin: POST to the wheel-spin Edge Function. A 401 with a fresh
-     token (first visit, expired/absent identity) is retried once with
-     the issued token. A 404 means the function is not deployed yet —
-     surfaced as a clear error, never a fake prize. */
-  function wheelSpin(campaignId) {
+  /* Spin: POST to the wheel-spin Edge Function.
+     Run 13 fixes:
+       * The 401 bootstrap retry now re-reads the token the server just
+         issued and saved (previously the retry was sent WITHOUT any
+         token, so a first-time visitor always failed twice).
+       * fetch-level failures and non-JSON responses (undeployed
+         function, platform error pages) surface as CLEAR diagnostics
+         instead of a raw browser TypeError such as "Load failed".
+       * consume_entitlement passthrough for the order-earned spin. */
+  function wheelSpin(campaignId, opts) {
     if (MODE === 'demo') {
       return Promise.reject(new Error(I18N_WHEEL_UNAVAILABLE));
     }
+    opts = opts || {};
     var nonce = genUuid();
     var sessionToken = null;
     var proceed = client && client.auth && client.auth.getSession
@@ -1337,6 +1348,11 @@
         })
       : Promise.resolve();
     return proceed.then(function () {
+      function diag(status) {
+        if (status === 404) return 'The wheel-spin Edge Function is not deployed on the server yet (HTTP 404). Deploy it from the Supabase CLI or dashboard, then retry.';
+        if (status === 502 || status === 503) return 'The wheel-spin service is temporarily unavailable (HTTP ' + status + '). Please try again shortly.';
+        return null;
+      }
       function call(token) {
         var headers = {
           'Content-Type': 'application/json',
@@ -1344,28 +1360,42 @@
         };
         if (sessionToken) headers.Authorization = 'Bearer ' + sessionToken;
         var body = { campaign_id: campaignId, nonce: nonce };
+        if (opts.consumeEntitlement) body.consume_entitlement = true;
         if (token) body.participant_token = token;
         return fetch(URL + '/functions/v1/wheel-spin', {
           method: 'POST',
           headers: headers,
           body: JSON.stringify(body)
+        }).catch(function (netErr) {
+          /* fetch-level failure: offline, DNS, blocked CORS or an
+             undeployed function — surfaced honestly, never faked. */
+          var e = new Error('Could not reach the wheel service. If this persists, the wheel-spin Edge Function is likely not deployed on the server yet.');
+          e.status = 0;
+          e.diagnostic = String((netErr && netErr.message) || netErr || 'network error');
+          throw e;
         }).then(function (res) {
-          return res.json().then(function (json) {
+          return res.json().catch(function () {
+            /* Non-JSON body (error page / empty body) — diagnose by status. */
+            var e = new Error(diag(res.status) || ('Wheel service returned an invalid response (HTTP ' + res.status + ').'));
+            e.status = res.status;
+            throw e;
+          }).then(function (json) {
             if (json && json.participant_token) wheelSaveToken(json.participant_token);
             if (!res.ok) {
-              var e = new Error((json && json.error) || 'Spin failed');
-              e.status = res.status;
-              throw e;
+              var e2 = new Error((json && json.error) || diag(res.status) || 'Spin failed');
+              e2.status = res.status;
+              throw e2;
             }
             return json.result;
           });
         });
       }
-      return call(wheelStoredToken() || undefined).then(function (result) {
-        if (result && result.already_participated) return result;
-        return result;
-      }).catch(function (err) {
-        if (err && err.status === 401) return call(undefined); // fresh token → one retry
+      return call(wheelStoredToken() || undefined).catch(function (err) {
+        if (err && err.status === 401) {
+          /* The 401 response carried a freshly issued token which
+             call() already saved — retry ONCE with that identity. */
+          return call(wheelStoredToken() || undefined);
+        }
         throw err;
       });
     });

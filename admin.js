@@ -47,6 +47,13 @@
   function pill(text, cls) {
     return '<span class="pill ' + (cls || '') + '">' + esc(text) + '</span>';
   }
+  /* Run 13 fix: metric() previously lived inside renderOverview's draw(),
+     so the Dashboard cleanup, Campaign Analytics and Inventory Valuation
+     sections threw "metric is not defined". Hoisted to module scope. */
+  function metric(label, value, sub, alert) {
+    return '<div class="metric' + (alert ? ' is-alert' : '') + '"><div class="m-label">' + label + '</div>' +
+      '<div class="m-value">' + value + '</div>' + (sub ? '<div class="m-sub">' + sub + '</div>' : '') + '</div>';
+  }
   function statusPill(status) {
     var map = {
       pending: 'pill-ink', confirmed: 'pill-info', processing: 'pill-info',
@@ -619,11 +626,6 @@
       }).catch(function (err) {
         host.innerHTML = '<div class="adm-card adm-danger"><h2>' + I.t('error_generic') + '</h2><p class="muted">' + esc(err.message || '') + '</p></div>';
       });
-    }
-
-    function metric(label, value, sub, alert) {
-      return '<div class="metric' + (alert ? ' is-alert' : '') + '"><div class="m-label">' + label + '</div>' +
-        '<div class="m-value">' + value + '</div>' + (sub ? '<div class="m-sub">' + sub + '</div>' : '') + '</div>';
     }
   }
 
@@ -3378,8 +3380,13 @@
      changes (limits reached / prizes disabled) require an explicit
      Review & Publish before spins resume.
   ============================================================ */
+  /* Run 13: brand palette guaranteeing distinct segment colors — prizes
+     saved with an empty color get a position-based palette tone instead
+     (fix for the one-solid-color published wheel). */
+  var WHEEL_PALETTE = ['#F72585', '#B5179E', '#7209B7', '#560BAD', '#F8E9F1', '#FFB3C6'];
+
   function wheelGradient(segs) {
-    var tones = ['#F72585', '#B5179E', '#7209B7', '#560BAD', '#F8E9F1', '#FFB3C6'];
+    var tones = WHEEL_PALETTE;
     var stops = [], acc = 0;
     var step = 360 / segs.length;
     segs.forEach(function (s, i) {
@@ -3390,23 +3397,48 @@
     return 'conic-gradient(' + stops.join(', ') + ')';
   }
 
+  /* Run 13: same dividing-line overlay as the storefront wheel, so the
+     admin preview renders exactly what visitors will see. */
+  function wheelDividers(n) {
+    var step = (360 / n).toFixed(2);
+    return 'repeating-conic-gradient(from -0.35deg, rgba(255,255,255,.85) 0deg .7deg, transparent .7deg ' + step + 'deg)';
+  }
+
+  /* Run 13: shared label sizing for preview + storefront parity — the
+     width follows the segment's chord at the label radius, the font
+     scales with segment count and text length (wraps, never ellipses). */
+  function wheelLabelHtml(text, n, mid) {
+    var maxW = Math.min(46, Math.round(63 * Math.sin(Math.PI / n)));
+    var sizeCls = n > 8 ? ' lbl-9' : (n > 6 ? ' lbl-10' : '');
+    text = String(text || '');
+    if (text.length > 26) sizeCls += ' lbl-xs';
+    else if (text.length > 16) sizeCls += ' lbl-sm';
+    return '<span class="bb-wheel-label" style="transform:rotate(' + mid.toFixed(1) + 'deg)">' +
+      '<b class="' + sizeCls.trim() + '" style="max-width:' + maxW + '%">' + esc(text) + '</b></span>';
+  }
+
   function loadWheel(force) {
-    if (state.preview) return Promise.resolve({ campaign: null, prizes: [] });
+    if (state.preview) return Promise.resolve({ campaign: null, prizes: [], settings: null });
     if (cache.wheel && cache.wheel.prizes && !force) return Promise.resolve(cache.wheel);
-    return sb.from('wheel_campaigns').select('*').order('created_at', { ascending: false }).limit(1)
-      .then(function (r1) {
-        if (r1.error) throw r1.error;
-        var campaign = (r1.data || [])[0] || null;
-        if (!campaign) return { campaign: null, prizes: [] };
-        return sb.from('wheel_prizes').select('*').eq('campaign_id', campaign.id).order('position')
-          .then(function (r2) {
-            if (r2.error) throw r2.error;
-            return { campaign: campaign, prizes: r2.data || [] };
-          });
-      }).then(function (w) {
-        cache.wheel = w;
-        return w;
-      });
+    /* Run 13: also loads the order-spin settings singleton. */
+    return Promise.all([
+      sb.from('wheel_campaigns').select('*').order('created_at', { ascending: false }).limit(1),
+      sb.from('wheel_settings').select('*').limit(1)
+    ]).then(function (rs) {
+      if (rs[0].error) throw rs[0].error;
+      if (rs[1].error) throw rs[1].error;
+      var campaign = (rs[0].data || [])[0] || null;
+      var settings = (rs[1].data || [])[0] || null;
+      if (!campaign) return { campaign: null, prizes: [], settings: settings };
+      return sb.from('wheel_prizes').select('*').eq('campaign_id', campaign.id).order('position')
+        .then(function (r2) {
+          if (r2.error) throw r2.error;
+          return { campaign: campaign, prizes: r2.data || [], settings: settings };
+        });
+    }).then(function (w) {
+      cache.wheel = w;
+      return w;
+    });
   }
 
   function wheelProbSum(prizes) {
@@ -3423,9 +3455,31 @@
       var removedIds = [];
       var isNewCampaign = !campaign;
 
+      /* Run 13: wheel state summary (quick enable/disable + status pill)
+         and the independent order-based free-spin settings. */
+      var settings = w.settings || {};
+      var osEnabled = settings.order_spin_enabled === true;
+      var osMin = (settings.order_spin_min_total === undefined || settings.order_spin_min_total === null)
+        ? 0 : Number(settings.order_spin_min_total);
+      var whState;
+      if (campaign && campaign.status === 'enabled' && campaign.published_at) {
+        whState = { txt: I.t('ad_wheel_state_live'), cls: 'pill-ok' };
+      } else if (campaign && campaign.status === 'enabled') {
+        whState = { txt: I.t('ad_wheel_state_enabled_np'), cls: 'pill-warn' };
+      } else if (campaign && campaign.status === 'paused') {
+        whState = { txt: I.t('ad_wheel_state_paused'), cls: 'pill-warn' };
+      } else {
+        whState = { txt: I.t('ad_wheel_state_disabled'), cls: 'pill-ink' };
+      }
+
       host.innerHTML =
         '<div class="adm-card"><h2>' + I.t('ad_wheel_title') + '</h2>' +
         '<p class="hint mt-1">' + I.t('ad_wheel_hint') + '</p>' +
+        '<div class="switch-row">' +
+        '<div><b>' + I.t('ad_wheel_state') + '</b> <span class="pill ' + whState.cls + '">' + whState.txt + '</span>' +
+        '<p class="hint mt-1" style="margin:0">' + I.t('ad_wheel_state_hint') + '</p></div>' +
+        '<button type="button" class="switch' + (campaign && campaign.status === 'enabled' ? ' on' : '') + '" id="wh-enabled" aria-label="' + I.t('ad_wheel_state') + '"></button>' +
+        '</div>' +
         '<div class="adm-form-grid g3 mt-2">' +
         '<div class="field"><label>' + I.t('ad_wheel_title_en') + '</label><input class="input is-ltr" id="wh-title-en" value="' + esc(campaign ? campaign.title_en : '') + '"></div>' +
         '<div class="field"><label>' + I.t('ad_wheel_title_ar') + '</label><input class="input" id="wh-title-ar" value="' + esc(campaign ? campaign.title_ar : '') + '" dir="rtl"></div>' +
@@ -3444,6 +3498,26 @@
         '<div class="field"><label>' + I.t('ad_wheel_instr_en') + '</label><textarea class="input" id="wh-instr-en">' + esc(campaign ? campaign.instructions_en : '') + '</textarea></div>' +
         '<div class="field"><label>' + I.t('ad_wheel_instr_ar') + '</label><textarea class="input" id="wh-instr-ar" dir="rtl">' + esc(campaign ? campaign.instructions_ar : '') + '</textarea></div>' +
         '</div></div>' +
+        /* Run 13: order-based free-spin settings — independent control;
+           disabling this NEVER disables the wheel itself. */
+        '<div class="adm-card"><h2>' + I.t('ad_wof_title') + '</h2>' +
+        '<p class="hint mt-1">' + I.t('ad_wof_hint') + '</p>' +
+        '<div class="switch-row">' +
+        '<div><b>' + I.t('ad_wof_enable') + '</b>' +
+        '<p class="hint mt-1" style="margin:0">' + I.t('ad_wof_enable_hint') + '</p></div>' +
+        '<button type="button" class="switch' + (osEnabled ? ' on' : '') + '" id="wof-enabled" aria-label="' + I.t('ad_wof_enable') + '"></button>' +
+        '</div>' +
+        '<div class="adm-form-grid g3 mt-2">' +
+        '<div class="field"><label>' + I.t('ad_wof_threshold') + '</label>' +
+        '<input class="input is-ltr" inputmode="decimal" id="wof-threshold" value="' + esc(String(osMin)) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_wof_amount_rule') + '</label>' +
+        '<input class="input" disabled value="' + esc(I.t('ad_wof_amount_rule_value')) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_wof_status') + '</label>' +
+        '<input class="input" disabled id="wof-status-box" value="' + esc(osEnabled ? I.t('ad_wof_status_on') : I.t('ad_wof_status_off')) + '"></div>' +
+        '</div>' +
+        '<div class="row-actions mt-2"><button type="button" class="btn btn-primary btn-sm" id="wof-save">' + I.t('ad_save') + '</button>' +
+        '<span class="hint">' + esc(I.t('ad_wof_once_note')) + '</span></div>' +
+        '</div>' +
         '<div class="adm-card"><div class="flex-between mb-2"><h2 style="margin:0">' + I.t('ad_wheel_prizes') + '</h2>' +
         '<div class="row-actions">' +
         '<span id="wh-prob-badge"></span>' +
@@ -3600,6 +3674,15 @@
           payload.status = 'enabled';
           payload.published_at = new Date().toISOString();
         }
+        /* Run 13: quick enable/disable — the configuration and prizes are
+           never touched, so re-enabling restores the campaign as-is. */
+        if (extra && extra.enable) {
+          payload.status = 'enabled';
+          if (!campaign || !campaign.published_at) payload.published_at = new Date().toISOString();
+        }
+        if (extra && extra.disable) {
+          payload.status = 'disabled';
+        }
         return (campaign
           ? sb.from('wheel_campaigns').update(payload).eq('id', campaign.id).select().single()
           : sb.from('wheel_campaigns').insert(payload).select().single()
@@ -3635,7 +3718,9 @@
             conditions_en: String(p.conditions_en || '').trim(),
             conditions_ar: String(p.conditions_ar || '').trim(),
             coupon_prefix: String(p.coupon_prefix || 'BLUSH').trim(),
-            color: p.color || '',
+            /* Run 13: never store an empty color — the per-position brand
+               palette keeps every segment distinct after publishing. */
+            color: p.color || WHEEL_PALETTE[i % WHEEL_PALETTE.length],
             is_enabled: !!p.is_enabled
           };
           chain = chain.then(function () {
@@ -3675,6 +3760,53 @@
           UI.toast(err.message || I.t('error_generic'), 'error');
         });
       });
+      /* Run 13: server-backed enable/disable quick control. Disabling
+         freezes spins WITHOUT deleting anything — wheel_spin() refuses
+         non-enabled campaigns server-side, so the FAB and the modal are
+         never the only guard. */
+      q('#wh-enabled').addEventListener('click', function () {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        if (!campaign) { UI.toast(I.t('ad_wheel_err_nocampaign'), 'error'); return; }
+        var btn = this;
+        btn.disabled = true;
+        var enabling = campaign.status !== 'enabled';
+        saveCampaign(enabling ? { enable: true } : { disable: true }).then(function () {
+          cache.wheel = null;
+          UI.toast(I.t(enabling ? 'ad_wheel_enabled_toast' : 'ad_wheel_disabled_toast'), 'ok');
+          renderWheel(host);
+        }).catch(function (err) {
+          btn.disabled = false;
+          UI.toast(err.message || I.t('error_generic'), 'error');
+        });
+      });
+      /* Run 13: order-based free-spin settings. The threshold and the
+         switch live in wheel_settings and are enforced by the grant
+         trigger at order-confirmation time. */
+      q('#wof-enabled').addEventListener('click', function () {
+        this.classList.toggle('on');
+        var box = q('#wof-status-box');
+        if (box) box.value = I.t(this.classList.contains('on') ? 'ad_wof_status_on' : 'ad_wof_status_off');
+      });
+      q('#wof-save').addEventListener('click', function () {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        var min = parseFloat(q('#wof-threshold').value);
+        if (isNaN(min) || min < 0) { UI.toast(I.t('ad_wof_err_min'), 'error'); return; }
+        var btn = this;
+        btn.disabled = true;
+        sb.from('wheel_settings').update({
+          order_spin_enabled: q('#wof-enabled').classList.contains('on'),
+          order_spin_min_total: Math.round(min * 100) / 100,
+          updated_by: state.session && state.session.user ? state.session.user.id : null
+        }).eq('id', true).select().single().then(function (r) {
+          if (r.error) throw r.error;
+          cache.wheel = null;
+          UI.toast(I.t('ad_wof_saved'), 'ok');
+          renderWheel(host);
+        }).catch(function (err) {
+          btn.disabled = false;
+          UI.toast(err.message || I.t('error_generic'), 'error');
+        });
+      });
       q('#wh-publish').addEventListener('click', function () {
         if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
         if (!validate()) return;
@@ -3708,11 +3840,11 @@
           '<div class="bb-wheel-stage bb-wheel-stage-admin">' +
           '<div class="bb-wheel-pointer">' + UI.icon('chevDown', 18) + '</div>' +
           '<div class="bb-wheel-disc bb-wheel-disc-admin" style="background:' + wheelGradient(segs) + '">' +
+          '<div class="bb-wheel-lines" style="background:' + wheelDividers(segs.length) + '" aria-hidden="true"></div>' +
           segs.map(function (s, i) {
             var seg = 360 / segs.length;
             var mid = i * seg + seg / 2;
-            return '<span class="bb-wheel-label" style="transform:rotate(' + mid.toFixed(1) + 'deg)"><b>' +
-              esc(I.lang === 'ar' ? (s.label_ar || s.label_en) : (s.label_en || s.label_ar)) + '</b></span>';
+            return wheelLabelHtml(I.lang === 'ar' ? (s.label_ar || s.label_en) : (s.label_en || s.label_ar), segs.length, mid);
           }).join('') +
           '</div></div>' +
           '<div class="adm-modal-footer" style="justify-content:center">' +
@@ -3725,8 +3857,10 @@
           var disc = q('.bb-wheel-disc-admin', card);
           var idx = Math.floor(Math.random() * segs.length);
           var seg = 360 / segs.length;
-          disc.style.transform = 'rotate(' + (360 * 4 + (360 - (idx * seg + seg / 2))).toFixed(2) + 'deg)';
-          setTimeout(function () { UI.toast(I.t('ad_wheel_preview_note'), 'info'); }, 3500);
+          /* Run 13: same spin feel as the storefront (6 preview rotations
+             in 4.6s; visual-only — never records a participation). */
+          disc.style.transform = 'rotate(' + (360 * 6 + (360 - (idx * seg + seg / 2))).toFixed(2) + 'deg)';
+          setTimeout(function () { UI.toast(I.t('ad_wheel_preview_note'), 'info'); }, 4600);
         });
       });
 
@@ -3750,16 +3884,24 @@
       sb.from('wheel_campaigns').select('*').order('created_at', { ascending: false }),
       sb.from('wheel_participations').select('*').order('created_at', { ascending: false }),
       sb.from('wheel_prizes').select('*'),
-      sb.from('wheel_coupons').select('*')
+      sb.from('wheel_coupons').select('*'),
+      /* Run 13: order-earned spin entitlements + the feature settings,
+         so the dashboard also shows the configured threshold/status. */
+      sb.from('wheel_order_entitlements').select('*').order('granted_at', { ascending: false }),
+      sb.from('wheel_settings').select('*').limit(1)
     ]).then(function (res) {
       if (res[0].error) throw res[0].error;
       if (res[1].error) throw res[1].error;
       if (res[2].error) throw res[2].error;
       if (res[3].error) throw res[3].error;
+      if (res[4].error) throw res[4].error;
+      if (res[5].error) throw res[5].error;
       var campaigns = res[0].data || [];
       var participations = res[1].data || [];
       var prizes = res[2].data || [];
       var coupons = res[3].data || [];
+      var entitlements = res[4].data || [];
+      var osSettings = (res[5].data || [])[0] || {};
       var campById = {};
       campaigns.forEach(function (c) { campById[c.id] = c; });
 
@@ -3794,6 +3936,13 @@
         });
         var redeemed = coupons.filter(function (c) { return c.redeemed_at && inRange(c.redeemed_at); });
         var conversion = awarded.length ? Math.round((redeemed.length / awarded.length) * 100) : 0;
+        /* Run 13: order-earned free-spin metrics. */
+        var entGranted = entitlements.filter(function (e) { return inRange(e.granted_at); });
+        var entUsed = entGranted.filter(function (e) { return !!e.consumed_at; });
+        var entSpins = spins.filter(function (p) { return p.source === 'order_entitlement'; });
+        var osOn = osSettings.order_spin_enabled === true;
+        var osMin = osSettings.order_spin_min_total === undefined || osSettings.order_spin_min_total === null
+          ? 0 : Number(osSettings.order_spin_min_total);
 
         var perPrize = prizes.map(function (pz) {
           var count = spins.filter(function (p) {
@@ -3811,6 +3960,10 @@
           metric(I.t('ad_wa_unique'), String(Object.keys(seen).length), '', false) +
           metric(I.t('ad_wa_redemptions'), String(redeemed.length), '', false) +
           metric(I.t('ad_wa_conversion'), conversion + '%', '', false) +
+          metric(I.t('ad_wa_ent_granted'), String(entGranted.length),
+            osOn ? I.t('ad_wa_wof_line', { m: I.fmtMoney(osMin) }) : I.t('ad_wa_wof_off'), false) +
+          metric(I.t('ad_wa_ent_used'), String(entUsed.length),
+            I.t('ad_wa_ent_spins', { n: entSpins.length }), false) +
           '</div>' +
           (perPrize.length
             ? '<div class="adm-table-wrap mt-2"><table class="adm-table"><thead><tr>' +
