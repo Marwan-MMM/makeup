@@ -31,10 +31,59 @@
     });
   }
 
+  /* ---------- Run 12: wheel coupon (validate preview only) ---------- */
+  var appliedCoupon = null;
+  function setCouponMsg(text, okClass) {
+    var el = document.getElementById('co-coupon-msg');
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || '';
+    el.classList.toggle('coupon-ok', !!okClass);
+    el.classList.toggle('coupon-err', !okClass);
+  }
+  function wireCoupon() {
+    var input = document.getElementById('co-coupon');
+    var btn = document.getElementById('co-coupon-apply');
+    if (!input || !btn) return;
+    input.placeholder = I.t('coupon_ph');
+    btn.textContent = I.t('coupon_apply');
+    btn.addEventListener('click', function () {
+      var code = input.value.trim();
+      if (!code) {
+        appliedCoupon = null;
+        drawSummary();
+        setCouponMsg(I.t('coupon_err_empty'));
+        return;
+      }
+      btn.disabled = true;
+      DB.validateCoupon(code).then(function (res) {
+        btn.disabled = false;
+        if (!res || !res.valid) {
+          appliedCoupon = null;
+          drawSummary();
+          setCouponMsg(res && res.reason ? res.reason : I.t('coupon_err_generic'));
+          return;
+        }
+        appliedCoupon = res;
+        drawSummary();
+        var msg;
+        if (res.discount_type === 'percent') msg = I.t('coupon_ok_percent', { v: String(res.discount_value) });
+        else if (res.discount_type === 'fixed') msg = I.t('coupon_ok_fixed', { m: UI.money(res.discount_value) });
+        else if (res.discount_type === 'free_shipping') msg = I.t('coupon_ok_free');
+        else msg = I.t('coupon_ok_gift');
+        setCouponMsg(msg, true);
+      }).catch(function (err) {
+        btn.disabled = false;
+        setCouponMsg(err && err.message ? err.message : I.t('coupon_err_generic'));
+      });
+    });
+  }
+
   function render() {
     document.getElementById('co-empty-glyph').innerHTML = UI.icon('bag', 22);
     document.getElementById('sim-notice-icon').innerHTML = UI.icon('info', 16);
     fillGovernorates();
+    wireCoupon();
 
     var items = UI.Cart.items();
     if (!items.length) {
@@ -137,7 +186,20 @@
 
     DB.getSettings().then(function (s) {
       shippingFee = Number(s.shipping_fee) || 0;
-      var total = Math.round((subtotal + shippingFee) * 100) / 100;
+      /* Run 12: coupon discount mirrors the server rule exactly
+         (percent → subtotal × value; fixed → min(value, subtotal);
+         free_shipping → shipping zeroed). Display only — create_order
+         recomputes and enforces everything. */
+      var couponDiscount = 0;
+      var freeShipping = false;
+      if (appliedCoupon) {
+        if (appliedCoupon.discount_type === 'percent') couponDiscount = Math.round(subtotal * Number(appliedCoupon.discount_value || 0) / 100 * 100) / 100;
+        else if (appliedCoupon.discount_type === 'fixed') couponDiscount = Math.min(Number(appliedCoupon.discount_value || 0), subtotal);
+        else if (appliedCoupon.discount_type === 'free_shipping') freeShipping = true;
+      }
+      couponDiscount = Math.min(couponDiscount, subtotal);
+      var chargedShipping = freeShipping ? 0 : shippingFee;
+      var total = Math.round((subtotal - couponDiscount + chargedShipping) * 100) / 100;
       /* Mandatory 50% deposit of the FINAL total (after discounts and
          shipping), rounded to 2 decimals; remaining = exact difference.
          The server recomputes both from trusted values at submission —
@@ -153,11 +215,22 @@
       });
       discount = Math.round(discount * 100) / 100;
       document.getElementById('co-subtotal').textContent = UI.money(subtotal);
-      document.getElementById('co-shipping').textContent = UI.money(shippingFee);
+      document.getElementById('co-shipping').textContent = UI.money(chargedShipping);
       document.getElementById('co-total').textContent = UI.money(total);
       var discRow = document.getElementById('row-discount');
       discRow.hidden = !(discount > 0);
       document.getElementById('co-discount').textContent = '- ' + UI.money(discount);
+      /* Run 12: coupon row */
+      var cRow = document.getElementById('row-coupon');
+      if (appliedCoupon && (couponDiscount > 0 || freeShipping)) {
+        cRow.hidden = false;
+        document.getElementById('co-coupon-label').textContent =
+          I.t('coupon_row', { code: appliedCoupon.code });
+        document.getElementById('co-coupon-discount').textContent =
+          freeShipping && couponDiscount === 0 ? I.t('coupon_free') : '- ' + UI.money(couponDiscount);
+      } else {
+        cRow.hidden = true;
+      }
       document.getElementById('co-deposit').textContent = UI.money(deposit);
       document.getElementById('co-remaining').textContent = UI.money(remaining);
       document.getElementById('deposit-amount-note').textContent =
@@ -316,7 +389,11 @@
         address: document.getElementById('f-address').value.trim(),
         delivery_instructions: document.getElementById('f-instructions').value.trim()
       },
-      payment_method: method
+      payment_method: method,
+      /* Run 12: wheel coupon code — validated and consumed server-side
+         inside create_order (single-use, expiry + min order enforced
+         there). The browser only forwards the code as a lookup key. */
+      coupon_code: appliedCoupon ? appliedCoupon.code : ''
     };
 
     btn.textContent = I.t('co_uploading') + '…';

@@ -769,6 +769,10 @@
         delivery_instructions: cust.delivery_instructions || ''
       },
       payment_method: method,
+      /* Optional wheel coupon code (Run 12). The server validates and
+         consumes it; the browser-supplied code is only a lookup key —
+         the discount itself is recomputed server-side. */
+      coupon_code: String((payload.coupon_code || '')).trim() || undefined,
       /* Mandatory InstaPay deposit screenshot path (private bucket).
          The server verifies the object exists and computes the deposit
          amount itself — the browser never sends amounts. */
@@ -794,7 +798,8 @@
           p_customer: body.customer,
           p_payment_method: body.payment_method,
           p_client_request_id: body.client_request_id,
-          p_payment: body.payment
+          p_payment: body.payment,
+          p_coupon_code: body.coupon_code || null
         }).then(function (r) {
           if (r.error) throw new Error(r.error.message);
           return r.data;
@@ -812,7 +817,8 @@
           p_customer: body.customer,
           p_payment_method: body.payment_method,
           p_client_request_id: body.client_request_id,
-          p_payment: body.payment
+          p_payment: body.payment,
+          p_coupon_code: body.coupon_code || null
         }).then(function (r) {
           if (r.error) throw new Error(r.error.message);
           return r.data;
@@ -1000,6 +1006,195 @@
         return client.storage.from(m[1]).remove([m[2]]);
       } catch (e) { return Promise.resolve(); }
     },
+
+    /* ---------- Storage lifecycle helpers (storage-cleanup run) ----------
+       Reference-guarded deletion: an object is removed ONLY when no
+       database row anywhere still points at it. Every image-owning
+       table/column from the schema is checked (product galleries, shade
+       galleries, categories, banners, site logo). Failed removals are
+       queued in localStorage and retried on the next admin session so a
+       transient network failure can never silently lose a cleanup. */
+
+    /* Every table/column pair that can legally reference an uploaded
+       image. Orders' proof paths live in the PRIVATE payment-proofs
+       bucket and are deliberately absent — that bucket is never touched
+       by the storefront/admin cleanup helpers. */
+    IMAGE_REF_TABLES: [
+      { table: 'product_images', column: 'url' },
+      { table: 'product_shade_images', column: 'url' },
+      { table: 'categories', column: 'image_url' },
+      { table: 'banners', column: 'image_url' },
+      { table: 'site_settings', column: 'logo_url' },
+      /* Run 12: entry-popup images (homepage_settings) — kept in sync
+         with the storage-cleanup Edge Function's IMAGE_REF_TABLES. */
+      { table: 'homepage_settings', column: 'popup_image_url' }
+    ],
+
+    /* Buckets the admin helpers may ever write to — payment-proofs is
+       protected and can never be deleted through these helpers. */
+    CLEANUP_ALLOWED_BUCKETS: ['products', 'brand'],
+
+    parseStorageUrl: function (url) {
+      /* Extract {bucket, path} from a Supabase public object URL.
+         Tolerates whitespace, query strings and percent-encoding; the
+         path stays encoded exactly as it appears in the URL so it can
+         be matched against storage listing paths after decode. Returns
+         null for anything unparseable (the caller must skip, not
+         guess). */
+      if (!url || typeof url !== 'string') return null;
+      try {
+        var u = url.trim();
+        var m = /\/storage\/v1\/object\/public\/([^/]+)\/(.+?)(\?|$)/.exec(u);
+        if (!m) return null;
+        var bucket = m[1];
+        var path = m[2];
+        try { path = decodeURIComponent(path); } catch (e2) { /* keep raw */ }
+        if (!bucket || !path || path.indexOf('..') !== -1) return null;
+        return { bucket: bucket, path: path, decoded: true };
+      } catch (e) { return null; }
+    },
+
+    /* How many rows across ALL image-owning tables still reference this
+       URL. Exact match first (URLs in the DB come verbatim from
+       getPublicUrl), then a resilient suffix pass for rows saved with a
+       variant encoding. opts.exclude skips one row (the record being
+       edited). */
+    countReferences: function (publicUrl, opts) {
+      var parsed = this.parseStorageUrl(publicUrl);
+      var tables = this.IMAGE_REF_TABLES;
+      function tally(rows) {
+        var n = 0;
+        (rows || []).forEach(function () { n++; });
+        return n;
+      }
+      var chain = Promise.resolve(0);
+      tables.forEach(function (t) {
+        chain = chain.then(function (total) {
+          if (total > 0) return total; /* referenced somewhere already */
+          var q = client.from(t.table).select(t.column);
+          if (opts && opts.exclude && opts.exclude.table === t.table && opts.exclude.id) {
+            q = q.ne('id', opts.exclude.id);
+          }
+          return q.eq(t.column, publicUrl).then(function (r1) {
+            if (r1.error) throw r1.error;
+            if (tally(r1.data) > 0) return tally(r1.data);
+            /* suffix fallback: catch variant-encoded duplicates */
+            if (parsed) {
+              return client.from(t.table).select(t.column)
+                .like(t.column, '%' + parsed.path).then(function (r2) {
+                  if (r2.error) throw r2.error;
+                  return tally(r2.data);
+                });
+            }
+            return 0;
+          });
+        });
+      });
+      return chain;
+    },
+
+    /* Remove a storage object ONLY when nothing references it. Returns
+       {removed, refs, error?}. Uncertainty always resolves to "skip". */
+    removeIfUnreferenced: function (publicUrl, opts) {
+      var self = this;
+      return self.countReferences(publicUrl, opts).then(function (refs) {
+        if (refs > 0) return { removed: false, refs: refs, skipped: true };
+        var parsed = self.parseStorageUrl(publicUrl);
+        if (!parsed || self.CLEANUP_ALLOWED_BUCKETS.indexOf(parsed.bucket) === -1) {
+          return { removed: false, refs: 0, skipped: true, ambiguous: true };
+        }
+        return client.storage.from(parsed.bucket).remove([parsed.path])
+          .then(function (res) {
+            if (res.error) throw res.error;
+            return { removed: true, refs: 0 };
+          })
+          .catch(function (err) {
+            self.recordFailedCleanup(parsed.bucket, parsed.path, publicUrl,
+              'storage remove failed: ' + ((err && err.message) || err));
+            return { removed: false, refs: 0, error: err };
+          });
+      }).catch(function (err) {
+        /* Reference check itself failed (network/RLS) — never delete. */
+        var parsed = self.parseStorageUrl(publicUrl);
+        if (parsed) {
+          self.recordFailedCleanup(parsed.bucket, parsed.path, publicUrl,
+            'reference check failed: ' + ((err && err.message) || err));
+        }
+        return { removed: false, refs: -1, error: err, uncertain: true };
+      });
+    },
+
+    /* Roll back files uploaded during THIS save attempt that never got
+       a database row (failed insert, later step threw, network drop).
+       Each URL is reference-checked before removal — a row that did get
+       written survives. */
+    rollbackUploads: function (urls) {
+      var self = this;
+      return Promise.all((urls || []).filter(Boolean).map(function (u) {
+        return self.removeIfUnreferenced(u).catch(function () {
+          return { removed: false, uncertain: true };
+        });
+      })).then(function () { return true; });
+    },
+
+    /* -------- failed-cleanup retry queue (localStorage) -------- */
+    CLEANUP_QUEUE_KEY: 'bb_storage_cleanup_retry',
+
+    recordFailedCleanup: function (bucket, path, publicUrl, reason) {
+      try {
+        var raw = localStorage.getItem(this.CLEANUP_QUEUE_KEY);
+        var list = raw ? JSON.parse(raw) : [];
+        list.push({
+          bucket: bucket, path: path, publicUrl: publicUrl,
+          reason: String(reason || ''), ts: Date.now(), attempts: 0
+        });
+        localStorage.setItem(this.CLEANUP_QUEUE_KEY, JSON.stringify(list));
+      } catch (e) { /* storage unavailable — nothing else to do */ }
+      return true;
+    },
+
+    pendingCleanupCount: function () {
+      try {
+        var raw = localStorage.getItem(this.CLEANUP_QUEUE_KEY);
+        return raw ? (JSON.parse(raw) || []).length : 0;
+      } catch (e) { return 0; }
+    },
+
+    /* Retry queued cleanups (admin session only): reference-checked
+       again before every attempt, capped at 5 tries per file. A file
+       that became referenced meanwhile is DROPPED — it is no longer
+       orphaned and must never be deleted. */
+    retryPendingCleanups: function () {
+      var self = this;
+      var list;
+      try {
+        var raw = localStorage.getItem(self.CLEANUP_QUEUE_KEY);
+        list = raw ? JSON.parse(raw) : [];
+      } catch (e) { return Promise.resolve(0); }
+      if (!list || !list.length) return Promise.resolve(0);
+      return Promise.all(list.map(function (item) {
+        /* Files parked after 5 attempts stay queued for manual review. */
+        if ((item.attempts || 0) >= 5) return Promise.resolve('parked');
+        return self.removeIfUnreferenced(item.publicUrl).then(function (r) {
+          if (r.removed) return 'resolved';   /* cleaned up now */
+          if (r.refs > 0) return 'resolved';  /* referenced again — drop */
+          return 'failed';
+        }).catch(function () { return 'failed'; });
+      })).then(function (verdicts) {
+        var kept = [], resolved = 0;
+        list.forEach(function (item, i) {
+          var v = verdicts[i];
+          if (v === 'resolved') { resolved++; return; } /* remove from queue */
+          if (v === 'parked') { kept.push(item); return; }
+          item.attempts = (item.attempts || 0) + 1;     /* failed again */
+          kept.push(item);
+        });
+        try {
+          localStorage.setItem(self.CLEANUP_QUEUE_KEY, JSON.stringify(kept));
+        } catch (e2) { /* ignore */ }
+        return resolved;
+      });
+    },
     setOrderStatus: function (orderId, status) {
       return client.rpc('admin_set_order_status', { p_order_id: orderId, p_status: status });
     },
@@ -1053,8 +1248,152 @@
     },
     cleanupRun: function () {
       return client.rpc('cleanup_demo_data');
+    },
+    /* ---- Run 12: inventory valuation cost editing (admin-only table;
+       RLS on product_costs restricts all access to administrators) ---- */
+    getProductCosts: function () {
+      if (MODE === 'demo') return Promise.resolve([]);
+      return client.from('product_costs').select('product_id,cost_price,updated_at')
+        .then(function (res) {
+          if (res.error) throw res.error;
+          return res.data || [];
+        });
+    },
+    saveProductCost: function (productId, costPrice) {
+      if (MODE === 'demo') {
+        return Promise.reject(new Error('Product costs are stored in Supabase.'));
+      }
+      var self = this;
+      return self.getSession().then(function (session) {
+        return client.from('product_costs').upsert({
+          product_id: productId,
+          cost_price: costPrice,
+          updated_by: session && session.user ? session.user.id : null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'product_id' });
+      }).then(function (res) {
+        if (res.error) throw res.error;
+        return true;
+      });
+    },
+    removeProductCost: function (productId) {
+      if (MODE === 'demo') return Promise.resolve(true);
+      return client.from('product_costs').delete().eq('product_id', productId)
+        .then(function (res) {
+          if (res.error) throw res.error;
+          return true;
+        });
     }
   };
+
+  /* ----------------------------------------------------------------
+     Run 12 — Wheel of Fortune (storefront, server-authoritative)
+     The browser only ASKS: the winning prize, its probability weights,
+     the coupon value and the participation record are decided by the
+     wheel_spin() database function behind the wheel-spin Edge Function.
+  ---------------------------------------------------------------- */
+  var WHEEL_TOKEN_KEY = 'bb_wheel_token';
+
+  function wheelStoredToken() {
+    try { return localStorage.getItem(WHEEL_TOKEN_KEY) || ''; }
+    catch (e) { return ''; }
+  }
+  function wheelSaveToken(token) {
+    try {
+      if (token && typeof token === 'string' && token.indexOf('.') > 0) {
+        localStorage.setItem(WHEEL_TOKEN_KEY, token);
+      }
+    } catch (e2) { /* storage unavailable — anonymous state check degrades */ }
+  }
+  function wheelTokenUuid() {
+    var t = wheelStoredToken();
+    return t.indexOf('.') > 0 ? t.slice(0, t.indexOf('.')) : '';
+  }
+
+  /* Campaign display state for the current visitor. Display fields
+     only — probabilities, values and limits never leave the server. */
+  function wheelState() {
+    if (MODE === 'demo') return Promise.resolve({ active: false });
+    return client.rpc('wheel_public_state', { p_participant_token: wheelTokenUuid() })
+      .then(function (res) {
+        if (res.error) throw res.error;
+        return res.data || { active: false };
+      });
+  }
+
+  /* Spin: POST to the wheel-spin Edge Function. A 401 with a fresh
+     token (first visit, expired/absent identity) is retried once with
+     the issued token. A 404 means the function is not deployed yet —
+     surfaced as a clear error, never a fake prize. */
+  function wheelSpin(campaignId) {
+    if (MODE === 'demo') {
+      return Promise.reject(new Error(I18N_WHEEL_UNAVAILABLE));
+    }
+    var nonce = genUuid();
+    var sessionToken = null;
+    var proceed = client && client.auth && client.auth.getSession
+      ? client.auth.getSession().then(function (s) {
+          sessionToken = s && s.data && s.data.session ? s.data.session.access_token : null;
+        })
+      : Promise.resolve();
+    return proceed.then(function () {
+      function call(token) {
+        var headers = {
+          'Content-Type': 'application/json',
+          'apikey': KEY
+        };
+        if (sessionToken) headers.Authorization = 'Bearer ' + sessionToken;
+        var body = { campaign_id: campaignId, nonce: nonce };
+        if (token) body.participant_token = token;
+        return fetch(URL + '/functions/v1/wheel-spin', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(body)
+        }).then(function (res) {
+          return res.json().then(function (json) {
+            if (json && json.participant_token) wheelSaveToken(json.participant_token);
+            if (!res.ok) {
+              var e = new Error((json && json.error) || 'Spin failed');
+              e.status = res.status;
+              throw e;
+            }
+            return json.result;
+          });
+        });
+      }
+      return call(wheelStoredToken() || undefined).then(function (result) {
+        if (result && result.already_participated) return result;
+        return result;
+      }).catch(function (err) {
+        if (err && err.status === 401) return call(undefined); // fresh token → one retry
+        throw err;
+      });
+    });
+  }
+  var I18N_WHEEL_UNAVAILABLE = 'Wheel of Fortune requires the live backend.';
+
+  /* Coupon preview for checkout (never consumes anything). */
+  function validateCoupon(code) {
+    if (MODE === 'demo') {
+      return Promise.resolve({ valid: false, reason: 'Demo mode: coupons are unavailable.' });
+    }
+    return client.rpc('validate_wheel_coupon', { p_code: String(code || '') })
+      .then(function (res) {
+        if (res.error) throw res.error;
+        return res.data;
+      });
+  }
+
+  /* ----------------------------------------------------------------
+     Run 12 — Inventory valuation (admin-only, server-side calc)
+  ---------------------------------------------------------------- */
+  function getInventoryValuation() {
+    if (MODE === 'demo') return Promise.resolve(null);
+    return client.rpc('inventory_valuation').then(function (res) {
+      if (res.error) throw res.error;
+      return res.data;
+    });
+  }
 
   /* Public interface */
   window.DB = {
@@ -1086,6 +1425,12 @@
     confirmSimulatedPayment: confirmSimulatedPayment,
     normalizePhone: normalizePhone,
     admin: adminApi,
+
+    /* Run 12: wheel of fortune + coupons + inventory valuation */
+    wheelState: wheelState,
+    wheelSpin: wheelSpin,
+    validateCoupon: validateCoupon,
+    getInventoryValuation: getInventoryValuation,
 
     /* localisation-aware accessors used by all pages */
     locName: locName,

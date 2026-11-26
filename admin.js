@@ -385,8 +385,27 @@
     { key: 'orders', icon: 'box', label: 'ad_orders' },
     { key: 'customers', icon: 'users', label: 'ad_customers' },
     { key: 'inventory', icon: 'truck', label: 'ad_inventory' },
+    { key: 'home-categories', icon: 'image', label: 'ad_hcat_title' },
+    { key: 'popup', icon: 'mail', label: 'ad_popup_title' },
+    { key: 'wheel', icon: 'gift', label: 'ad_wheel_title' },
+    { key: 'wheel-analytics', icon: 'calendar', label: 'ad_wa_title' },
+    { key: 'inventory-valuation', icon: 'bag', label: 'ad_val_title' },
+    { key: 'gross-profit', icon: 'chart', label: 'ad_gp_title' },
     { key: 'settings', icon: 'sliders', label: 'ad_settings' },
     { key: 'demo', icon: 'alert', label: 'ad_demo' }
+  ];
+
+  /* Run 12: grouped navigation — Content Management, Marketing and
+     Business Overview added alongside the existing groups. The group
+     order matches the requested admin structure; every key above must
+     appear exactly once across all groups (asserted at boot). */
+  var NAV_GROUPS = [
+    { label: 'ad_group_catalog', keys: ['overview', 'products', 'categories', 'discounts'] },
+    { label: 'ad_group_sales', keys: ['orders', 'customers', 'inventory'] },
+    { label: 'ad_group_content', keys: ['home-categories', 'popup'] },
+    { label: 'ad_group_marketing', keys: ['wheel', 'wheel-analytics'] },
+    { label: 'ad_group_business', keys: ['inventory-valuation', 'gross-profit'] },
+    { label: 'ad_group_system', keys: ['settings', 'demo'] }
   ];
 
   function buildShell() {
@@ -440,9 +459,14 @@
   function renderSidebar() {
     var nav = q('#adm-nav');
     if (!nav) return;
-    nav.innerHTML = SECTIONS.map(function (s) {
-      return '<a href="#/' + s.key + '" data-key="' + s.key + '" class="' + (state.section === s.key ? 'active' : '') + '">' +
-        UI.icon(s.icon, 17) + I.t(s.label) + '</a>';
+    nav.innerHTML = NAV_GROUPS.map(function (g) {
+      return '<div class="adm-nav-group">' + esc(I.t(g.label)) + '</div>' +
+        g.keys.map(function (key) {
+          var s = SECTIONS.find(function (x) { return x.key === key; });
+          if (!s) return '';
+          return '<a href="#/' + s.key + '" data-key="' + s.key + '" class="' + (state.section === s.key ? 'active' : '') + '">' +
+            UI.icon(s.icon, 17) + I.t(s.label) + '</a>';
+        }).join('');
     }).join('');
     updateLangButtons();
   }
@@ -476,6 +500,12 @@
       orders: renderOrders,
       customers: renderCustomers,
       inventory: renderInventory,
+      'home-categories': renderHomeCategories,
+      popup: renderPopupConfig,
+      wheel: renderWheel,
+      'wheel-analytics': renderWheelAnalytics,
+      'inventory-valuation': renderInventoryValuation,
+      'gross-profit': renderGrossProfit,
       settings: renderSettings,
       demo: renderDemo
     };
@@ -704,11 +734,31 @@
             }).then(function (ok) {
               if (!ok) return;
               if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
-              sb.from('products').delete().eq('id', p.id).then(function (res) {
-                if (res.error) throw res.error;
+              /* Storage-cleanup run: collect every image URL first,
+                 delete the DB records (cascade) — only after that
+                 SUCCEEDS remove files nothing else references. A failed
+                 row delete never touches storage; failed file removals
+                 are queued for retry. */
+              collectProductImageUrls(p.id).then(function (urls) {
+                return sb.from('products').delete().eq('id', p.id).then(function (res) {
+                  if (res.error) throw res.error;
+                  return urls;
+                });
+              }).then(function (urls) {
                 cache.products = null;
                 UI.toast(I.t('ad_deleted'), 'ok');
                 draw();
+                var uniq = [];
+                (urls || []).forEach(function (u) {
+                  if (u && uniq.indexOf(u) === -1) uniq.push(u);
+                });
+                Promise.all(uniq.map(function (u) {
+                  return DB.admin.removeIfUnreferenced(u);
+                })).then(function (results) {
+                  var removed = results.filter(function (r) { return r && r.removed; }).length;
+                  if (removed) UI.toast(I.t('ad_storage_cleaned', { n: removed }), 'ok');
+                  DB.admin.retryPendingCleanups();
+                });
               }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
             });
           });
@@ -798,6 +848,28 @@
     } catch (e) { return Promise.resolve(); }
   }
 
+  /* Storage-cleanup run: collect every storage URL a product owns
+     (gallery + shade galleries) while its rows still exist — after the
+     DB cascade the URLs would be unrecoverable. */
+  function collectProductImageUrls(productId) {
+    return sb.from('product_images').select('url').eq('product_id', productId)
+      .then(function (r1) {
+        if (r1.error) throw r1.error;
+        var urls = (r1.data || []).map(function (x) { return x.url; }).filter(Boolean);
+        return sb.from('product_shades').select('id').eq('product_id', productId)
+          .then(function (r2) {
+            if (r2.error) throw r2.error;
+            var ids = (r2.data || []).map(function (x) { return x.id; });
+            if (!ids.length) return urls;
+            return sb.from('product_shade_images').select('url').in('shade_id', ids)
+              .then(function (r3) {
+                if (r3.error) throw r3.error;
+                return urls.concat((r3.data || []).map(function (x) { return x.url; }).filter(Boolean));
+              });
+          });
+      });
+  }
+
   function openProductModal(row, onDone) {
     var isNew = !row;
     var p = row || {
@@ -812,9 +884,15 @@
       loadCategories(),
       isNew || state.preview ? Promise.resolve([]) :
         sb.from('product_images').select('*').eq('product_id', p.id).order('position'),
-      isNew ? Promise.resolve([]) : loadShadesFor(p.id)
+      isNew ? Promise.resolve([]) : loadShadesFor(p.id),
+      /* Run 12: prefill the acquisition cost from the admin-only
+         product_costs table (never exposed publicly). */
+      isNew || state.preview ? Promise.resolve([]) : DB.admin.getProductCosts()
     ]).then(function (res) {
       var cats = res[0];
+      /* Run 12: current acquisition cost (admin-only table), prefill. */
+      var costRow = (res[3] || []).filter ? (res[3] || []).find(function (c) { return c.product_id === p.id; }) : null;
+      p._cost = costRow ? costRow.cost_price : null;
       var images = (res[1] && res[1].data) ? res[1].data : (res[1] || []);
       var shades = res[2] || []; /* working shade objects (see mapShadeRow) */
       var deletedShadeIds = []; /* shades removed in the UI, deleted on save */
@@ -845,6 +923,9 @@
         '<div class="field"><label>' + I.t('ad_price') + '</label><input class="input is-ltr" id="f-price" inputmode="decimal" value="' + esc(p.price) + '"></div>' +
         '<div class="field"><label>' + I.t('ad_stock') + '</label><input class="input is-ltr" id="f-stock" inputmode="numeric" value="' + esc(p.stock) + '"></div>' +
         '<div class="field"><label>' + I.t('ad_low_threshold') + '</label><input class="input is-ltr" id="f-threshold" inputmode="numeric" value="' + esc(p.low_stock_threshold) + '"></div>' +
+        '</div>' +
+        '<div class="adm-form-grid g3">' +
+        '<div class="field"><label>' + I.t('ad_val_th_cost') + ' (' + I.t('ad_val_edit_cost') + ', EGP)</label><input class="input is-ltr" id="f-cost" inputmode="decimal" value="' + esc(p._cost === undefined || p._cost === null ? '' : p._cost) + '" placeholder="' + I.t('ad_val_missing_hint') + '"></div>' +
         '</div>' +
         '<p class="hint" id="stock-shades-hint" style="display:none">' + I.t('ad_stock_shades_hint') + '</p>' +
 
@@ -930,16 +1011,23 @@
             if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
             var idx = Number(b.dataset.delImg);
             var im = images[idx];
-            DB.admin.deleteImage(im.url).then(function () {
-              return sb.from('product_images').delete().eq('id', im.id);
-            }).then(function (res) {
+            /* Storage-cleanup run, DB-first: the row is deleted and
+               confirmed BEFORE any storage call, and the file goes only
+               when no other row references it. */
+            sb.from('product_images').delete().eq('id', im.id).then(function (res) {
               if (res.error) throw res.error;
+              return DB.admin.removeIfUnreferenced(im.url);
+            }).then(function (clean) {
               images.splice(idx, 1);
               /* normalize order */
               return Promise.all(images.map(function (x, i) {
                 return sb.from('product_images').update({ position: i }).eq('id', x.id);
-              }));
-            }).then(function () { drawImages(); UI.toast(I.t('ad_deleted'), 'ok'); })
+              })).then(function () { return clean; });
+            }).then(function (clean) {
+              drawImages();
+              UI.toast(I.t('ad_deleted'), 'ok');
+              if (clean && clean.error) UI.toast(I.t('ad_storage_retry_note'), 'info');
+            })
               .catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
           });
         });
@@ -1160,9 +1248,10 @@
           danger: true
         }).then(function (ok) {
           if (!ok) return;
-          /* best-effort cleanup of the shade's stored image files */
-          Promise.all(sh.images.map(function (im) { return removeShadeImageFile(im.url); }))
-            .catch(function () { /* non-fatal */ });
+          /* Storage-cleanup run: files are NOT removed here — the shade
+             row is only deleted when the form is saved. Stash the URLs;
+             saveShades removes them AFTER the row deletion succeeds. */
+          sh._orphanUrls = (sh.images || []).map(function (im) { return im.url; }).filter(Boolean);
           if (sh.id) deletedShadeIds.push(sh.id);
           shades.splice(idx, 1);
           drawShades();
@@ -1175,17 +1264,20 @@
         var sh = shades[sIdx];
         var im = sh.images[iIdx];
         if (!im) return;
-        removeShadeImageFile(im.url).then(function () {
-          return sb.from('product_shade_images').delete().eq('id', im.id);
-        }).then(function (res) {
+        /* DB-first (storage-cleanup run): the row is deleted and
+           confirmed BEFORE the file is touched. */
+        sb.from('product_shade_images').delete().eq('id', im.id).then(function (res) {
           if (res.error) throw res.error;
+          return DB.admin.removeIfUnreferenced(im.url);
+        }).then(function (clean) {
           sh.images.splice(iIdx, 1);
           return Promise.all(sh.images.map(function (x, i) {
             return sb.from('product_shade_images').update({ position: i }).eq('id', x.id);
-          }));
-        }).then(function () {
+          })).then(function () { return clean; });
+        }).then(function (clean) {
           drawShades();
           UI.toast(I.t('ad_deleted'), 'ok');
+          if (clean && clean.error) UI.toast(I.t('ad_storage_retry_note'), 'info');
         }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
       }
 
@@ -1216,7 +1308,9 @@
           return sb.from('product_shade_images').update({ url: url, alt: im.alt || '' }).eq('id', im.id)
             .then(function (res) {
               if (res.error) throw res.error;
-              return removeShadeImageFile(im.url);
+              /* DB row already points at the NEW url — the old file is
+                 removed only when no other row references it. */
+              return DB.admin.removeIfUnreferenced(im.url);
             })
             .then(function () { return url; });
         }).then(function (url) {
@@ -1226,8 +1320,11 @@
         }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
       }
 
-      /* Persists the shade working objects after the product row is saved. */
-      function saveShades(productId) {
+      /* Persists the shade working objects after the product row is
+         saved. uploadedNow (optional) collects every file uploaded
+         during this save so the caller can roll back unreferenced ones
+         if a later step fails. */
+      function saveShades(productId, uploadedNow) {
         if (state.preview) return Promise.resolve();
         if (!shades.length && !deletedShadeIds.length) return Promise.resolve();
         var delTask = deletedShadeIds.length
@@ -1235,6 +1332,20 @@
           : Promise.resolve({ error: null });
         return delTask.then(function (r0) {
           if (r0.error) throw r0.error;
+          /* Shade rows are really gone — only NOW the files they
+             pointed at become cleanup candidates (reference-checked;
+             shared files survive). Fire-and-forget: a later step in
+             this save must not be able to strand these files. */
+          var orphanUrls = [];
+          shades.forEach(function (sh) {
+            if (sh._orphanUrls) orphanUrls = orphanUrls.concat(sh._orphanUrls);
+          });
+          var uniq = [];
+          orphanUrls.forEach(function (u) { if (u && uniq.indexOf(u) === -1) uniq.push(u); });
+          if (uniq.length) {
+            Promise.all(uniq.map(function (u) { return DB.admin.removeIfUnreferenced(u); }))
+              .then(function () { DB.admin.retryPendingCleanups(); });
+          }
           /* insert/update in display order */
           return shades.reduce(function (chain, sh, idx) {
             return chain.then(function () {
@@ -1276,6 +1387,7 @@
                 return inner.then(function () {
                   return DB.admin.uploadImage('products', folder, file).then(function (url) {
                     if (!url) return;
+                    if (uploadedNow) uploadedNow.push(url);
                     return sb.from('product_shade_images').insert({
                       shade_id: sh.id, url: url,
                       alt: sh.shade_name_en || '', position: sh.images.length + i
@@ -1378,6 +1490,9 @@
            later Save UPDATES that row — a retry after a failed image or
            shade step can never create a duplicate product. */
         var savedProductId = null;
+        /* Storage-cleanup run: files uploaded during THIS save attempt;
+           on failure everything still unreferenced is rolled back. */
+        var uploadedNow = [];
 
         var saveRow = (isNew && !savedProductId)
           ? sb.from('products').insert(payload).select().single()
@@ -1398,6 +1513,7 @@
             return chain.then(function () {
               return DB.admin.uploadImage('products', folder, file).then(function (url) {
                 if (!url) return;
+                uploadedNow.push(url);
                 return sb.from('product_images').insert({
                   product_id: saved.id, url: url, alt: saved.name_en,
                   position: images.length + i
@@ -1407,7 +1523,20 @@
           }, Promise.resolve()).then(function () {
             /* persist the shade definitions (inserts, updates, deletions,
                staged shade-image uploads) */
-            return saveShades(saved.id);
+            return saveShades(saved.id, uploadedNow);
+          }).then(function () {
+            /* Run 12: persist the acquisition cost into the admin-only
+               product_costs table (empty field removes the row). A
+               rejection lands in the partial-save path below, so the
+               next Save retries ONLY the failed step on the same row. */
+            var costRaw = q('#f-cost', m.body) ? q('#f-cost', m.body).value.trim() : '';
+            if (costRaw === '') {
+              if (!isNew && !state.preview) return DB.admin.removeProductCost(saved.id);
+              return;
+            }
+            var costVal = Number(costRaw);
+            if (isNaN(costVal) || costVal < 0) throw new Error(I.t('ad_val_cost_err'));
+            return DB.admin.saveProductCost(saved.id, costVal);
           }).then(function () {
             cache.products = null;
             cache.shades = null;
@@ -1416,6 +1545,11 @@
             onDone && onDone();
           });
         }).catch(function (err) {
+          /* Storage-cleanup run: files uploaded during this failed save
+             that never got a database row are removed (reference-checked,
+             so rows that DID land keep their files). Failures queue for
+             retry — never silent. */
+          if (uploadedNow.length) DB.admin.rollbackUploads(uploadedNow);
           btn.disabled = false;
           btn.textContent = I.t('ad_save');
           var msg = err && err.message ? err.message : I.t('error_generic');
@@ -2379,7 +2513,71 @@
         '</tbody></table></div>' +
         '<div class="adm-modal-footer" style="justify-content:flex-start">' +
         '<button type="button" class="btn btn-primary" id="st-save">' + I.t('ad_save') + '</button>' +
-        '</div></div>';
+        '</div></div>' +
+
+        /* Storage audit (storage-cleanup run): REPORT-ONLY trigger for
+           the server-side cleanup Edge Function. The browser sends only
+           the signed-in admin's own access token — the privileged
+           service key never leaves the server. */
+        '<div class="adm-card"><div class="flex-between mb-2"><h2 style="margin:0">' + I.t('ad_audit_title') + '</h2>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="st-audit-run">' + I.t('ad_audit_run') + '</button></div>' +
+        '<p class="hint mb-2">' + I.t('ad_audit_desc') + '</p>' +
+        '<p class="hint" id="st-audit-retry"></p>' +
+        '<div id="st-audit-out"></div></div>';
+
+      /* Storage audit trigger + failed-cleanup retry visibility. */
+      q('#st-audit-retry').textContent = DB.admin.pendingCleanupCount()
+        ? I.t('ad_audit_pending', { n: DB.admin.pendingCleanupCount() }) : '';
+      q('#st-audit-run').addEventListener('click', function () {
+        var btn = this;
+        var out = q('#st-audit-out');
+        btn.disabled = true;
+        btn.textContent = I.t('ad_audit_running');
+        out.innerHTML = '';
+        DB.admin.getSession().then(function (session) {
+          if (!session || !session.access_token) throw new Error(I.t('ad_audit_fail'));
+          var cfg = (window.BLUSH_CONFIG || {});
+          if (!cfg.SUPABASE_URL) throw new Error(I.t('ad_audit_nofn'));
+          return fetch(cfg.SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/storage-cleanup', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + session.access_token,
+              'apikey': cfg.SUPABASE_ANON_KEY || '',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ mode: 'report' })
+          }).then(function (res) {
+            return res.json().then(function (data) {
+              if (!res.ok) throw new Error((data && data.error) || I.t('ad_audit_fail'));
+              return data;
+            });
+          });
+        }).then(function (report) {
+          var t = report.totals || {};
+          function fmtBytes(b) {
+            if (b === null || b === undefined) return '\u2014';
+            if (b > 1048576) return (b / 1048576).toFixed(2) + ' MB';
+            if (b > 1024) return (b / 1024).toFixed(1) + ' KB';
+            return b + ' B';
+          }
+          var rows = (report.candidates || []).slice(0, 50).map(function (c) {
+            return '<tr><td>' + esc(c.bucket) + '</td><td class="is-ltr">' + esc(c.path) + '</td>' +
+              '<td>' + fmtBytes(c.size) + '</td><td>' + (c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '\u2014') + '</td></tr>';
+          }).join('');
+          out.innerHTML =
+            '<table class="adm-table"><thead><tr>' +
+            '<th>' + I.t('ad_audit_th_scanned') + '</th><th>' + I.t('ad_audit_th_ref') + '</th><th>' + I.t('ad_audit_th_cand') + '</th><th>' + I.t('ad_audit_th_recov') + '</th>' +
+            '</tr></thead><tbody><tr><td>' + (t.scanned || 0) + '</td><td>' + (t.referenced || 0) + '</td><td>' + (t.orphanedCandidates || 0) + '</td><td>' + fmtBytes(report.recoverable && report.recoverable.totalBytes) + '</td></tr></tbody></table>' +
+            '<p class="hint mt-1">' + esc(I.t('ad_audit_excl', { g: t.graceExcluded || 0, p: t.protectedExcluded || 0, a: t.ambiguousExcluded || 0 })) + '</p>' +
+            (rows ? '<table class="adm-table mt-2"><thead><tr><th>Bucket</th><th>Path</th><th>Size</th><th>Created</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
+            '<p class="hint mt-1">' + esc(I.t('ad_audit_note')) + '</p>';
+        }).catch(function (err) {
+          out.innerHTML = '<p class="hint">' + esc((err && err.message) || I.t('ad_audit_fail')) + '</p>';
+        }).then(function () {
+          btn.disabled = false;
+          btn.textContent = I.t('ad_audit_run');
+        });
+      });
 
       qa('.switch', host).forEach(function (sw) {
         sw.addEventListener('click', function () { sw.classList.toggle('on'); });
@@ -2422,8 +2620,14 @@
           bestsellers_title_en: val(f('best-en')), bestsellers_title_ar: val(f('best-ar'))
         }).eq('id', 1);
 
+        /* Storage-cleanup run: remember the previous logo so it can be
+           removed once the new one is safely referenced, and track the
+           fresh upload for rollback if the settings update fails. */
+        var oldLogoUrl = (s && s.logo_url) || '';
+        var uploadedLogoUrl = null;
         var pre = logoFile
           ? DB.admin.uploadImage('brand', 'logo', logoFile).then(function (url) {
+            uploadedLogoUrl = url;
             return { logo_url: url };
           })
           : Promise.resolve(null);
@@ -2433,6 +2637,9 @@
         }).then(function (results) {
           if (results[0].error) throw results[0].error;
           if (results[1].error) throw results[1].error;
+          if (uploadedLogoUrl && oldLogoUrl && oldLogoUrl !== uploadedLogoUrl) {
+            DB.admin.removeIfUnreferenced(oldLogoUrl);
+          }
           cache.settings = null; cache.homepage = null;
           /* Warm the shared settings cache with the fresh values so any
              storefront render on this session reads the saved switch
@@ -2441,6 +2648,7 @@
           UI.toast(I.t('ad_set_saved'), 'ok');
           renderSettings(host);
         }).catch(function (err) {
+          if (uploadedLogoUrl) DB.admin.rollbackUploads([uploadedLogoUrl]);
           btn.disabled = false;
           UI.toast(err.message || I.t('error_generic'), 'error');
         });
@@ -2469,6 +2677,9 @@
               cache.banners = null;
               UI.toast(I.t('ad_deleted'), 'ok');
               renderSettings(host);
+              /* row gone — file removed only if nothing else references
+                 it (storage-cleanup run) */
+              if (banner.image_url) DB.admin.removeIfUnreferenced(banner.image_url);
             }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
           });
         });
@@ -2490,18 +2701,23 @@
           if (!cat) { UI.toast(I.t('ad_cat_missing'), 'error'); return; }
           b.disabled = true;
           var oldUrl = cat.image_url || '';
+          var newUrl = null;
           DB.admin.uploadImage('brand', 'categories', file).then(function (url) {
+            newUrl = url;
             return sb.from('categories').update({ image_url: url }).eq('id', cat.id).then(function (r) {
               if (r.error) throw r.error;
               return url;
             });
           }).then(function () {
-            /* old file deleted only after the new URL is live */
-            if (oldUrl) DB.admin.deleteImage(oldUrl).catch(function () { /* non-fatal */ });
+            /* old file removed only after the new URL is live — and only
+               when no other row references it (storage-cleanup run) */
+            if (oldUrl) DB.admin.removeIfUnreferenced(oldUrl);
             cache.categories = null;
             UI.toast(I.t('ad_cat_saved'), 'ok');
             renderSettings(host);
           }).catch(function (err) {
+            /* the fresh upload has no row — roll it back */
+            if (newUrl) DB.admin.rollbackUploads([newUrl]);
             b.disabled = false;
             UI.toast(err.message || I.t('error_generic'), 'error');
           });
@@ -2524,7 +2740,9 @@
             b.disabled = true;
             sb.from('categories').update({ image_url: null }).eq('id', cat.id).then(function (r) {
               if (r.error) throw r.error;
-              DB.admin.deleteImage(oldUrl).catch(function () { /* non-fatal */ });
+              /* row cleared first — file goes only if nothing else
+                 references it (storage-cleanup run) */
+              DB.admin.removeIfUnreferenced(oldUrl);
               cache.categories = null;
               UI.toast(I.t('ad_cat_removed'), 'ok');
               renderSettings(host);
@@ -2591,6 +2809,11 @@
         display_order: parseInt(q('#b-order', m.body).value, 10) || 0,
         is_active: q('#b-active', m.body).checked
       };
+      /* Storage-cleanup run: remember the old image (edit case) so it is
+         removed once the new one is live, and track the fresh upload
+         for rollback if the DB update fails. */
+      var oldBannerUrl = (!isNew && banner && banner.image_url) ? banner.image_url : '';
+      var uploadedBannerUrl = null;
       var op = isNew
         ? sb.from('banners').insert(payload).select().single()
         : sb.from('banners').update(payload).eq('id', banner.id).select().single();
@@ -2598,7 +2821,16 @@
         if (r1.error) throw r1.error;
         if (file) {
           return DB.admin.uploadImage('brand', 'banners', file).then(function (url) {
-            if (url) return sb.from('banners').update({ image_url: url }).eq('id', r1.data.id);
+            if (!url) return null;
+            uploadedBannerUrl = url;
+            return sb.from('banners').update({ image_url: url }).eq('id', r1.data.id)
+              .then(function (r2) {
+                if (r2.error) throw r2.error;
+                if (oldBannerUrl && oldBannerUrl !== uploadedBannerUrl) {
+                  DB.admin.removeIfUnreferenced(oldBannerUrl);
+                }
+                return null;
+              });
           });
         }
       }).then(function () {
@@ -2607,6 +2839,7 @@
         m.close();
         onDone && onDone();
       }).catch(function (err) {
+        if (uploadedBannerUrl) DB.admin.rollbackUploads([uploadedBannerUrl]);
         btn.disabled = false;
         UI.toast(err.message || I.t('error_generic'), 'error');
       });
@@ -2691,6 +2924,1102 @@
 
   boot();
 
+  /* ============================================================
+     Run 12 — Content Management: Homepage Categories
+     Manages the SAME categories table the storefront grid reads
+     (show_on_home / display_order / image_url / slug). No duplicate
+     category system. Every image operation follows the storage-cleanup
+     run: upload → DB update confirmed → old file removed ONLY when
+     unreferenced; failed saves roll back freshly uploaded files.
+  ============================================================ */
+  function renderHomeCategories(host) {
+    Promise.all([loadCategories(true), loadProducts()]).then(function (res) {
+      var cats = res[0], products = res[1];
+      var mains = cats.filter(function (c) { return !c.parent_id; })
+        .sort(function (a, b) {
+          return (a.display_order || 0) - (b.display_order || 0) ||
+            String(a.name_en || '').localeCompare(String(b.name_en || ''));
+        });
+      var countFor = function (catId) {
+        return products.filter(function (p) { return p.category_id === catId || (p.sub && p.sub.parent_id === catId); }).length;
+      };
+      var ordered = mains.slice();
+      function renumber(list) {
+        /* sequential updates; a mid-chain failure leaves display_order
+           values that still sort the SAME way (relative order intact) */
+        return list.reduce(function (chain, c, i) {
+          return chain.then(function () {
+            return sb.from('categories').update({ display_order: (i + 1) * 10 }).eq('id', c.id)
+              .then(function (r) { if (r.error) throw r.error; });
+          });
+        }, Promise.resolve()).then(function () {
+          cache.categories = null;
+        });
+      }
+
+      host.innerHTML =
+        '<div class="adm-card"><h2>' + I.t('ad_hcat_title') + '</h2>' +
+        '<p class="hint mt-1">' + I.t('ad_hcat_hint') + '</p>' +
+        '<div class="flex-between mt-2"><span></span>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="hcat-add">' + UI.icon('plus', 14) + I.t('ad_add_cat') + '</button></div>' +
+        '</div>' +
+        '<div class="adm-card">' +
+        (mains.length ? '<div class="adm-table-wrap"><table class="adm-table"><thead><tr>' +
+          '<th>' + I.t('ad_th_name') + '</th><th>' + I.t('ad_hcat_link') + '</th><th>' + I.t('ad_th_products') + '</th>' +
+          '<th>' + I.t('ad_hcat_order') + '</th><th>' + I.t('ad_hcat_visible') + '</th><th></th>' +
+          '</tr></thead><tbody>' +
+          mains.map(function (c) {
+            return '<tr data-cat-row="' + esc(c.id) + '">' +
+              '<td><div class="adm-cell-flex">' + hcatThumb(c) + '<div><div class="t-name">' + esc(catName(c)) + '</div>' +
+              '<div class="t-sub">' + esc(c.name_en) + ' / ' + esc(c.name_ar) + '</div></div></div></td>' +
+              '<td><a class="adm-link-chip" href="shop.html?cat=' + encodeURIComponent(c.slug) + '" target="_blank" rel="noopener">shop.html?cat=' + esc(c.slug) + '</a></td>' +
+              '<td>' + countFor(c.id) + '</td>' +
+              '<td><div class="row-actions">' +
+              '<button type="button" class="icon-sm" data-up="' + esc(c.id) + '" aria-label="' + I.t('ad_hcat_up') + '">' + UI.icon('chevUp', 14) + '</button>' +
+              '<button type="button" class="icon-sm" data-down="' + esc(c.id) + '" aria-label="' + I.t('ad_hcat_down') + '">' + UI.icon('chevDown', 14) + '</button>' +
+              '</div></td>' +
+              '<td><button type="button" class="switch' + (c.show_on_home ? ' on' : '') + '" data-home="' + esc(c.id) + '" aria-label="' + I.t('ad_hcat_visible') + '"></button></td>' +
+              '<td><div class="row-actions">' +
+              '<button type="button" class="icon-sm" data-edit="' + esc(c.id) + '" aria-label="' + I.t('ad_edit') + '">' + UI.icon('edit', 15) + '</button>' +
+              '<button type="button" class="icon-sm" data-del="' + esc(c.id) + '" aria-label="' + I.t('ad_delete') + '">' + UI.icon('trash', 15) + '</button>' +
+              '</div></td></tr>';
+          }).join('') +
+          '</tbody></table></div>' : '<p class="muted">' + I.t('ad_hcat_none') + '</p>') +
+        '</div>';
+
+      q('#hcat-add').addEventListener('click', function () {
+        openHomeCategoryModal(null, function () { renderHomeCategories(host); });
+      });
+      qa('[data-up]', host).concat(qa('[data-down]', host)).forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+          var isUp = b.dataset.up !== undefined;
+          var id = isUp ? b.dataset.up : b.dataset.down;
+          var idx = ordered.findIndex(function (c) { return c.id === id; });
+          var swapWith = isUp ? idx - 1 : idx + 1;
+          if (idx < 0 || swapWith < 0 || swapWith >= ordered.length) return;
+          var tmp = ordered[idx]; ordered[idx] = ordered[swapWith]; ordered[swapWith] = tmp;
+          renumber(ordered).then(function () { renderHomeCategories(host); })
+            .catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+        });
+      });
+      qa('[data-home]', host).forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+          var c = cats.find(function (x) { return x.id === b.dataset.home; });
+          if (!c) return;
+          var next = !b.classList.contains('on');
+          b.classList.toggle('on', next);
+          sb.from('categories').update({ show_on_home: next }).eq('id', c.id).then(function (r) {
+            if (r.error) throw r.error;
+            cache.categories = null;
+            UI.toast(I.t('ad_saved'), 'ok');
+          }).catch(function (err) {
+            b.classList.toggle('on', !next);
+            UI.toast(err.message || I.t('error_generic'), 'error');
+          });
+        });
+      });
+      qa('[data-edit]', host).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var c = cats.find(function (x) { return x.id === b.dataset.edit; });
+          if (c) openHomeCategoryModal(c, function () { renderHomeCategories(host); });
+        });
+      });
+      qa('[data-del]', host).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var c = cats.find(function (x) { return x.id === b.dataset.del; });
+          if (!c) return;
+          var used = countFor(c.id);
+          if (used > 0) { UI.toast(I.t('ad_cat_delete_err'), 'error'); return; }
+          UI.confirm({
+            title: I.t('ad_delete'),
+            text: I.t('ad_confirm_delete', { name: catName(c) }),
+            okLabel: I.t('ad_delete'),
+            danger: true
+          }).then(function (ok) {
+            if (!ok) return;
+            if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+            /* DB-first: the row is deleted, then the image file is
+               removed ONLY when no other row references it (shared
+               images survive — storage-cleanup run protections). */
+            sb.from('categories').delete().eq('id', c.id).then(function (r) {
+              if (r.error) throw r.error;
+              cache.categories = null;
+              UI.toast(I.t('ad_deleted'), 'ok');
+              renderHomeCategories(host);
+              if (c.image_url) return DB.admin.removeIfUnreferenced(c.image_url);
+            }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+          });
+        });
+      });
+
+      function hcatThumb(c) {
+        return '<span class="adm-thumb">' + (c.image_url
+          ? '<img src="' + esc(c.image_url) + '" alt="">'
+          : UI.phHtml(catName(c), (c.display_order || 0))) + '</span>';
+      }
+    }).catch(function (err) {
+      host.innerHTML = '<div class="adm-card adm-danger"><p>' + esc(err.message || I.t('error_generic')) + '</p></div>';
+    });
+  }
+
+  function openHomeCategoryModal(row, onDone) {
+    var isNew = !row;
+    var c = row || { name_en: '', name_ar: '', slug: '', display_order: 0, is_active: true, show_on_home: true, image_url: '' };
+    var m = modal(isNew ? I.t('ad_add_cat') : I.t('ad_edit_cat'),
+      '<div class="adm-form-grid g2">' +
+      '<div class="field"><label>' + I.t('ad_name_en') + '</label><input class="input is-ltr" id="hc-en" value="' + esc(c.name_en) + '"></div>' +
+      '<div class="field"><label>' + I.t('ad_name_ar') + '</label><input class="input" id="hc-ar" value="' + esc(c.name_ar) + '" dir="rtl"></div>' +
+      '</div>' +
+      (isNew
+        ? '<div class="field"><label>slug</label><input class="input is-ltr" id="hc-slug" value="' + esc(c.slug) + '" placeholder="makeup"></div>'
+        : '<p class="hint">' + I.t('ad_hcat_link') + ': <b>shop.html?cat=' + esc(c.slug) + '</b> (' + I.t('ad_hcat_hint') + ')</p>') +
+      '<div class="adm-form-grid g2">' +
+      '<div class="field"><label>' + I.t('ad_cat_image') + '</label><input type="file" class="input" id="hc-image" accept="image/jpeg,image/png,image/webp,image/avif"></div>' +
+      '<div class="field"><label>' + I.t('ad_hcat_order') + '</label><input class="input is-ltr" id="hc-order" inputmode="numeric" value="' + esc(c.display_order) + '"></div>' +
+      '</div>' +
+      (c.image_url ? '<div class="hc-current"><span class="adm-thumb"><img src="' + esc(c.image_url) + '" alt=""></span></div>' : '') +
+      '<label class="checkbox-row"><input type="checkbox" id="hc-home"' + (c.show_on_home ? ' checked' : '') + '> <span>' + I.t('ad_hcat_visible') + '</span></label>' +
+      '<label class="checkbox-row"><input type="checkbox" id="hc-active"' + (c.is_active ? ' checked' : '') + '> <span>' + I.t('ad_is_active') + '</span></label>' +
+      '<div class="adm-modal-footer">' +
+      '<button type="button" class="btn btn-ghost" data-close-x>' + I.t('ad_cancel') + '</button>' +
+      '<button type="button" class="btn btn-primary" id="hc-save">' + I.t('ad_save') + '</button>' +
+      '</div>');
+
+    m.back.querySelector('[data-close-x]').addEventListener('click', m.close);
+    q('#hc-save', m.body).addEventListener('click', function () {
+      var en = q('#hc-en', m.body).value.trim();
+      var ar = q('#hc-ar', m.body).value.trim();
+      if (!en || !ar) { UI.toast(I.t('ad_err_cat_name'), 'error'); return; }
+      if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+      var btn = this;
+      btn.disabled = true;
+      var uploadedNow = []; /* Run 9: files uploaded in THIS attempt */
+
+      function buildPayload(slug) {
+        return {
+          parent_id: null,
+          name_en: en, name_ar: ar, slug: slug,
+          display_order: parseInt(q('#hc-order', m.body).value, 10) || 0,
+          is_active: q('#hc-active', m.body).checked,
+          show_on_home: q('#hc-home', m.body).checked
+        };
+      }
+      var op;
+      if (isNew) {
+        var slug = (q('#hc-slug', m.body).value.trim() || en).toLowerCase()
+          .replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '');
+        op = loadCategories().then(function (cats) {
+          if (cats.some(function (x) { return x.slug === slug; })) {
+            throw new Error(I.t('ad_err_cat_name') + ' (slug exists)');
+          }
+          return sb.from('categories').insert(buildPayload(slug)).select().single();
+        });
+      } else {
+        op = sb.from('categories').update(buildPayload(c.slug)).eq('id', c.id).select().single();
+      }
+
+      op.then(function (r1) {
+        if (r1.error) throw r1.error;
+        var saved = r1.data;
+        var fileInput = q('#hc-image', m.body);
+        var file = fileInput && fileInput.files && fileInput.files[0];
+        if (!file) return saved;
+        return DB.admin.uploadImage('brand', 'categories', file).then(function (url) {
+          if (!url) return saved;
+          uploadedNow.push(url);
+          return sb.from('categories').update({ image_url: url }).eq('id', saved.id)
+            .then(function (r2) {
+              if (r2.error) throw r2.error;
+              /* New URL is live and referenced: now the previous image
+                 is removed ONLY when no other row references it. */
+              if (c.image_url && c.image_url !== url) {
+                return DB.admin.removeIfUnreferenced(c.image_url);
+              }
+              return saved;
+            });
+        });
+      }).then(function () {
+        cache.categories = null; cache.products = null;
+        UI.toast(I.t('ad_saved'), 'ok');
+        m.close();
+        onDone && onDone();
+      }).catch(function (err) {
+        /* Run 9: a failed save rolls back files uploaded during THIS
+           attempt (reference-checked, so rows that did land survive). */
+        if (uploadedNow.length) DB.admin.rollbackUploads(uploadedNow);
+        btn.disabled = false;
+        UI.toast(err.message || I.t('error_generic'), 'error');
+      });
+    });
+  }
+
+  /* ============================================================
+     Run 12 — Content Management: Entry Promotion / Welcome Popup
+  ============================================================ */
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (ch) {
+      var r = Math.random() * 16 | 0;
+      return (ch === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
+  function renderPopupConfig(host) {
+    loadSettingsAll(true).then(function (res) {
+      var hp = res.homepage || {};
+      var pop = {
+        popup_enabled: hp.popup_enabled !== false && hp.popup_enabled === true,
+        popup_mode: hp.popup_mode || 'both',
+        popup_image_url: hp.popup_image_url || '',
+        popup_title_en: hp.popup_title_en || '',
+        popup_title_ar: hp.popup_title_ar || '',
+        popup_subtitle_en: hp.popup_subtitle_en || '',
+        popup_subtitle_ar: hp.popup_subtitle_ar || '',
+        popup_description_en: hp.popup_description_en || '',
+        popup_description_ar: hp.popup_description_ar || '',
+        popup_discount_en: hp.popup_discount_en || '',
+        popup_discount_ar: hp.popup_discount_ar || '',
+        popup_cta_text_en: hp.popup_cta_text_en || '',
+        popup_cta_text_ar: hp.popup_cta_text_ar || '',
+        popup_cta_url: hp.popup_cta_url || '',
+        popup_frequency: hp.popup_frequency || 'per_session',
+        popup_delay_seconds: hp.popup_delay_seconds === undefined ? 3 : hp.popup_delay_seconds,
+        popup_start_at: hp.popup_start_at || '',
+        popup_end_at: hp.popup_end_at || '',
+        popup_campaign_key: hp.popup_campaign_key || ''
+      };
+
+      host.innerHTML =
+        '<div class="adm-card"><h2>' + I.t('ad_popup_title') + '</h2>' +
+        '<p class="hint mt-1">' + I.t('ad_popup_hint') + '</p>' +
+        '<div class="switch-row"><span>' + I.t('ad_popup_enable') + '</span>' +
+        '<button type="button" class="switch' + (pop.popup_enabled ? ' on' : '') + '" id="pp-enabled" aria-label="' + I.t('ad_popup_enable') + '"></button></div>' +
+        '<div class="adm-form-grid g3 mt-2">' +
+        '<div class="field"><label>' + I.t('ad_popup_mode') + '</label><select class="input" id="pp-mode">' +
+        '<option value="both"' + (pop.popup_mode === 'both' ? ' selected' : '') + '>' + I.t('ad_popup_mode_both') + '</option>' +
+        '<option value="image"' + (pop.popup_mode === 'image' ? ' selected' : '') + '>' + I.t('ad_popup_mode_image') + '</option>' +
+        '<option value="text"' + (pop.popup_mode === 'text' ? ' selected' : '') + '>' + I.t('ad_popup_mode_text') + '</option>' +
+        '</select></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_frequency') + '</label><select class="input" id="pp-frequency">' +
+        '<option value="every_visit"' + (pop.popup_frequency === 'every_visit' ? ' selected' : '') + '>' + I.t('ad_popup_freq_every') + '</option>' +
+        '<option value="per_session"' + (pop.popup_frequency === 'per_session' ? ' selected' : '') + '>' + I.t('ad_popup_freq_session') + '</option>' +
+        '<option value="per_day"' + (pop.popup_frequency === 'per_day' ? ' selected' : '') + '>' + I.t('ad_popup_freq_day') + '</option>' +
+        '<option value="per_campaign"' + (pop.popup_frequency === 'per_campaign' ? ' selected' : '') + '>' + I.t('ad_popup_freq_campaign') + '</option>' +
+        '</select></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_delay') + '</label><input class="input is-ltr" id="pp-delay" inputmode="numeric" value="' + esc(pop.popup_delay_seconds) + '"></div>' +
+        '</div>' +
+        '<div class="adm-form-grid g3">' +
+        '<div class="field"><label>' + I.t('ad_popup_image') + '</label><input type="file" class="input" id="pp-image" accept="image/jpeg,image/png,image/webp,image/avif"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_start') + '</label><input class="input is-ltr" type="datetime-local" id="pp-start" value="' + esc(isoToLocal(pop.popup_start_at)) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_end') + '</label><input class="input is-ltr" type="datetime-local" id="pp-end" value="' + esc(isoToLocal(pop.popup_end_at)) + '"></div>' +
+        '</div>' +
+        (pop.popup_image_url ? '<div class="hc-current"><span class="adm-thumb"><img src="' + esc(pop.popup_image_url) + '" alt=""></span></div>' : '') +
+        '<p class="hint">' + I.t('ad_popup_image_hint') + '</p>' +
+        '<div class="adm-section-title">' + I.t('ad_popup_title_en') + ' / ' + I.t('ad_popup_title_ar') + '</div>' +
+        '<div class="adm-form-grid g2">' +
+        '<div class="field"><label>' + I.t('ad_popup_subtitle_en') + '</label><input class="input is-ltr" id="pp-sub-en" value="' + esc(pop.popup_subtitle_en) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_subtitle_ar') + '</label><input class="input" id="pp-sub-ar" value="' + esc(pop.popup_subtitle_ar) + '" dir="rtl"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_title_en') + '</label><input class="input is-ltr" id="pp-title-en" value="' + esc(pop.popup_title_en) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_title_ar') + '</label><input class="input" id="pp-title-ar" value="' + esc(pop.popup_title_ar) + '" dir="rtl"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_desc_en') + '</label><textarea class="input" id="pp-desc-en">' + esc(pop.popup_description_en) + '</textarea></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_desc_ar') + '</label><textarea class="input" id="pp-desc-ar" dir="rtl">' + esc(pop.popup_description_ar) + '</textarea></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_discount_en') + '</label><input class="input is-ltr" id="pp-disc-en" value="' + esc(pop.popup_discount_en) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_discount_ar') + '</label><input class="input" id="pp-disc-ar" value="' + esc(pop.popup_discount_ar) + '" dir="rtl"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_cta_text_en') + '</label><input class="input is-ltr" id="pp-cta-en" value="' + esc(pop.popup_cta_text_en) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_cta_text_ar') + '</label><input class="input" id="pp-cta-ar" value="' + esc(pop.popup_cta_text_ar) + '" dir="rtl"></div>' +
+        '<div class="field"><label>' + I.t('ad_popup_cta_url') + '</label><input class="input is-ltr" id="pp-cta-url" value="' + esc(pop.popup_cta_url) + '" placeholder="shop.html"></div>' +
+        '</div>' +
+        '<div class="adm-modal-footer" style="justify-content:flex-start">' +
+        '<button type="button" class="btn btn-primary" id="pp-save">' + I.t('ad_save') + '</button>' +
+        '<button type="button" class="btn btn-outline" id="pp-preview">' + I.t('ad_popup_preview') + '</button>' +
+        '<button type="button" class="btn btn-ghost" id="pp-new-campaign">' + I.t('ad_popup_new_campaign') + '</button>' +
+        '</div>' +
+        '<p class="hint">' + I.t('ad_popup_new_campaign_hint') + '</p>' +
+        '</div>' +
+        '<div class="adm-card" id="pp-preview-card" hidden></div>';
+
+      var readForm = function () {
+        return {
+          popup_enabled: q('#pp-enabled').classList.contains('on'),
+          popup_mode: q('#pp-mode').value,
+          popup_frequency: q('#pp-frequency').value,
+          popup_delay_seconds: parseInt(q('#pp-delay').value, 10) || 0,
+          popup_title_en: q('#pp-title-en').value.trim(),
+          popup_title_ar: q('#pp-title-ar').value.trim(),
+          popup_subtitle_en: q('#pp-sub-en').value.trim(),
+          popup_subtitle_ar: q('#pp-sub-ar').value.trim(),
+          popup_description_en: q('#pp-desc-en').value.trim(),
+          popup_description_ar: q('#pp-desc-ar').value.trim(),
+          popup_discount_en: q('#pp-disc-en').value.trim(),
+          popup_discount_ar: q('#pp-disc-ar').value.trim(),
+          popup_cta_text_en: q('#pp-cta-en').value.trim(),
+          popup_cta_text_ar: q('#pp-cta-ar').value.trim(),
+          popup_cta_url: q('#pp-cta-url').value.trim(),
+          popup_start_at: localToIso(q('#pp-start').value),
+          popup_end_at: localToIso(q('#pp-end').value),
+          popup_image_url: pop.popup_image_url /* replaced when a file is chosen */
+        };
+      };
+
+      q('#pp-enabled').addEventListener('click', function () { this.classList.toggle('on'); });
+      q('#pp-preview').addEventListener('click', function () {
+        var card = q('#pp-preview-card');
+        var v = readForm();
+        card.hidden = false;
+        card.innerHTML = renderPopupPreviewHtml(v);
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+      q('#pp-new-campaign').addEventListener('click', function () {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        UI.confirm({
+          title: I.t('ad_popup_new_campaign'),
+          text: I.t('ad_popup_new_campaign_hint'),
+          okLabel: I.t('ad_save')
+        }).then(function (ok) {
+          if (!ok) return;
+          sb.from('homepage_settings').update({ popup_campaign_key: uuid() }).eq('id', 1).then(function (r) {
+            if (r.error) throw r.error;
+            cache.homepage = null;
+            UI.toast(I.t('ad_popup_saved'), 'ok');
+          }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+        });
+      });
+      q('#pp-save').addEventListener('click', function () {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        var v = readForm();
+        if (v.popup_start_at && v.popup_end_at && new Date(v.popup_start_at) >= new Date(v.popup_end_at)) {
+          UI.toast(I.t('ad_popup_err_dates'), 'error');
+          return;
+        }
+        var btn = this;
+        btn.disabled = true;
+        var uploadedNow = [];
+        var previousImage = pop.popup_image_url;
+        var fileInput = q('#pp-image');
+        var file = fileInput && fileInput.files && fileInput.files[0];
+        var payload = Object.assign({}, v);
+        delete payload.popup_image_url;
+
+        var chain = Promise.resolve(pop.popup_image_url);
+        if (file) {
+          chain = DB.admin.uploadImage('brand', 'popup', file).then(function (url) {
+            if (!url) throw new Error(I.t('error_generic'));
+            uploadedNow.push(url);
+            payload.popup_image_url = url;
+            return url;
+          });
+        }
+        chain.then(function () {
+          return sb.from('homepage_settings').update(payload).eq('id', 1).select().single();
+        }).then(function (r) {
+          if (r.error) throw r.error;
+          cache.homepage = null;
+          var newUrl = payload.popup_image_url || previousImage;
+          /* Replaced image removed ONLY when nothing else references it
+             (storage-cleanup run protections). */
+          if (file && previousImage && previousImage !== newUrl) {
+            return DB.admin.removeIfUnreferenced(previousImage);
+          }
+        }).then(function () {
+          UI.toast(I.t('ad_popup_saved'), 'ok');
+          btn.disabled = false;
+          renderPopupConfig(host);
+        }).catch(function (err) {
+          if (uploadedNow.length) DB.admin.rollbackUploads(uploadedNow);
+          btn.disabled = false;
+          UI.toast(err.message || I.t('error_generic'), 'error');
+        });
+      });
+
+      /* Faithful re-rendering of the storefront popup (same structure
+         and classes as UI.Popup's markup) using the CURRENT form
+         values — clearly labelled as a preview. */
+      function renderPopupPreviewHtml(v) {
+        var hasImage = v.popup_mode !== 'text' && v.popup_image_url;
+        var hasText = v.popup_mode !== 'image';
+        return '<div class="flex-between mb-2"><h2 style="margin:0">' + I.t('ad_popup_preview') + '</h2>' +
+          '<button type="button" class="btn btn-ghost btn-sm" id="pp-preview-close">' + I.t('close') + '</button></div>' +
+          '<p class="hint mb-2">' + I.t('ad_popup_preview_note') + '</p>' +
+          '<div class="pp-preview-stage' + (I.lang === 'ar' ? ' rtl' : '') + '">' +
+          '<div class="bb-popup' + (hasImage && hasText ? ' has-image' : '') + '" style="position:static;transform:none;opacity:1">' +
+          '<button type="button" class="bb-popup-x icon-btn" aria-label="' + I.t('close') + '">' + UI.icon('x', 20) + '</button>' +
+          (hasImage ? '<div class="bb-popup-media"><img src="' + esc(v.popup_image_url) + '" alt=""></div>' : '') +
+          (hasText ? '<div class="bb-popup-body">' +
+            (v.popup_subtitle_en || v.popup_subtitle_ar ? '<p class="overline">' + esc(I.lang === 'ar' ? (v.popup_subtitle_ar || v.popup_subtitle_en) : (v.popup_subtitle_en || v.popup_subtitle_ar)) + '</p>' : '') +
+            (v.popup_title_en || v.popup_title_ar ? '<h2 class="display-2">' + esc(I.lang === 'ar' ? (v.popup_title_ar || v.popup_title_en) : (v.popup_title_en || v.popup_title_ar)) + '</h2>' : '') +
+            (v.popup_description_en || v.popup_description_ar ? '<p class="bb-popup-desc">' + esc(I.lang === 'ar' ? (v.popup_description_ar || v.popup_description_en) : (v.popup_description_en || v.popup_description_ar)) + '</p>' : '') +
+            (v.popup_discount_en || v.popup_discount_ar ? '<p class="bb-popup-discount">' + esc(I.lang === 'ar' ? (v.popup_discount_ar || v.popup_discount_en) : (v.popup_discount_en || v.popup_discount_ar)) + '</p>' : '') +
+            (v.popup_cta_text_en || v.popup_cta_text_ar || v.popup_cta_url ? '<a class="btn btn-primary bb-popup-cta" href="javascript:void(0)">' +
+              esc(I.lang === 'ar' ? (v.popup_cta_text_ar || v.popup_cta_text_en || I.t('banner_cta')) : (v.popup_cta_text_en || v.popup_cta_text_ar || I.t('banner_cta'))) + '</a>' : '') +
+            '</div>' : '') +
+          '</div></div>';
+      }
+
+      var wirePreview = function () {
+        var x = q('#pp-preview-close');
+        if (x) x.addEventListener('click', function () {
+          q('#pp-preview-card').hidden = true;
+          q('#pp-preview-card').innerHTML = '';
+        });
+      };
+      wirePreview();
+    }).catch(function (err) {
+      host.innerHTML = '<div class="adm-card adm-danger"><p>' + esc(err.message || I.t('error_generic')) + '</p></div>';
+    });
+  }
+
+  /* ============================================================
+     Run 12 — Marketing: Wheel of Fortune (campaign + prizes)
+     Probability rule enforced in the UI AND re-checked server-side by
+     wheel_spin(): enabled prize probabilities must total EXACTLY 100%.
+     Invalid totals are rejected — never normalized. Availability
+     changes (limits reached / prizes disabled) require an explicit
+     Review & Publish before spins resume.
+  ============================================================ */
+  function wheelGradient(segs) {
+    var tones = ['#F72585', '#B5179E', '#7209B7', '#560BAD', '#F8E9F1', '#FFB3C6'];
+    var stops = [], acc = 0;
+    var step = 360 / segs.length;
+    segs.forEach(function (s, i) {
+      var c = s.color || tones[i % tones.length];
+      stops.push(c + ' ' + acc.toFixed(2) + 'deg ' + (acc + step).toFixed(2) + 'deg');
+      acc += step;
+    });
+    return 'conic-gradient(' + stops.join(', ') + ')';
+  }
+
+  function loadWheel(force) {
+    if (state.preview) return Promise.resolve({ campaign: null, prizes: [] });
+    if (cache.wheel && cache.wheel.prizes && !force) return Promise.resolve(cache.wheel);
+    return sb.from('wheel_campaigns').select('*').order('created_at', { ascending: false }).limit(1)
+      .then(function (r1) {
+        if (r1.error) throw r1.error;
+        var campaign = (r1.data || [])[0] || null;
+        if (!campaign) return { campaign: null, prizes: [] };
+        return sb.from('wheel_prizes').select('*').eq('campaign_id', campaign.id).order('position')
+          .then(function (r2) {
+            if (r2.error) throw r2.error;
+            return { campaign: campaign, prizes: r2.data || [] };
+          });
+      }).then(function (w) {
+        cache.wheel = w;
+        return w;
+      });
+  }
+
+  function wheelProbSum(prizes) {
+    return prizes.reduce(function (s, p) {
+      return p.is_enabled && (p.max_awards === null || p.max_awards === undefined || Number(p.awards_granted || 0) < Number(p.max_awards))
+        ? s + Number(p.probability || 0) : s;
+    }, 0);
+  }
+
+  function renderWheel(host) {
+    loadWheel(true).then(function (w) {
+      var campaign = w.campaign;
+      var prizes = (w.prizes || []).map(function (p) { return Object.assign({}, p); });
+      var removedIds = [];
+      var isNewCampaign = !campaign;
+
+      host.innerHTML =
+        '<div class="adm-card"><h2>' + I.t('ad_wheel_title') + '</h2>' +
+        '<p class="hint mt-1">' + I.t('ad_wheel_hint') + '</p>' +
+        '<div class="adm-form-grid g3 mt-2">' +
+        '<div class="field"><label>' + I.t('ad_wheel_title_en') + '</label><input class="input is-ltr" id="wh-title-en" value="' + esc(campaign ? campaign.title_en : '') + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_wheel_title_ar') + '</label><input class="input" id="wh-title-ar" value="' + esc(campaign ? campaign.title_ar : '') + '" dir="rtl"></div>' +
+        '<div class="field"><label>' + I.t('ad_wheel_status') + '</label><select class="input" id="wh-status">' +
+        '<option value="disabled"' + (!campaign || campaign.status === 'disabled' ? ' selected' : '') + '>' + I.t('ad_wheel_status_disabled') + '</option>' +
+        '<option value="paused"' + (campaign && campaign.status === 'paused' ? ' selected' : '') + '>' + I.t('ad_wheel_status_paused') + '</option>' +
+        '<option value="enabled"' + (campaign && campaign.status === 'enabled' ? ' selected' : '') + '>' + I.t('ad_wheel_status_enabled') + '</option>' +
+        '</select></div>' +
+        '<div class="field"><label>' + I.t('ad_wheel_start') + '</label><input class="input is-ltr" type="datetime-local" id="wh-start" value="' + esc(isoToLocal(campaign ? campaign.start_at : null)) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_wheel_end') + '</label><input class="input is-ltr" type="datetime-local" id="wh-end" value="' + esc(isoToLocal(campaign ? campaign.end_at : null)) + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_wheel_published_at') + '</label><input class="input" disabled value="' + (campaign && campaign.published_at ? isoToLocal(campaign.published_at) : '\u2014') + '"></div>' +
+        '<div class="field"><label>' + I.t('ad_wheel_desc_en') + '</label><textarea class="input" id="wh-desc-en">' + esc(campaign ? campaign.description_en : '') + '</textarea></div>' +
+        '<div class="field"><label>' + I.t('ad_wheel_desc_ar') + '</label><textarea class="input" id="wh-desc-ar" dir="rtl">' + esc(campaign ? campaign.description_ar : '') + '</textarea></div>' +
+        '</div>' +
+        '<div class="adm-form-grid g2">' +
+        '<div class="field"><label>' + I.t('ad_wheel_instr_en') + '</label><textarea class="input" id="wh-instr-en">' + esc(campaign ? campaign.instructions_en : '') + '</textarea></div>' +
+        '<div class="field"><label>' + I.t('ad_wheel_instr_ar') + '</label><textarea class="input" id="wh-instr-ar" dir="rtl">' + esc(campaign ? campaign.instructions_ar : '') + '</textarea></div>' +
+        '</div></div>' +
+        '<div class="adm-card"><div class="flex-between mb-2"><h2 style="margin:0">' + I.t('ad_wheel_prizes') + '</h2>' +
+        '<div class="row-actions">' +
+        '<span id="wh-prob-badge"></span>' +
+        '<button type="button" class="btn btn-outline btn-sm" id="wh-preview">' + I.t('ad_wheel_preview') + '</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="wh-publish">' + I.t('ad_wheel_publish') + '</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="wh-save">' + I.t('ad_save') + '</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="wh-add">' + UI.icon('plus', 14) + I.t('ad_wheel_add_prize') + '</button>' +
+        '</div></div>' +
+        '<div id="wh-drift" class="adm-warn" hidden></div>' +
+        '<div class="adm-table-wrap"><table class="adm-table wh-prizes"><thead><tr>' +
+        '<th>' + I.t('ad_wheel_th_label') + '</th><th>' + I.t('ad_wheel_th_type') + '</th><th>' + I.t('ad_wheel_th_value') + '</th>' +
+        '<th>' + I.t('ad_wheel_th_prob') + '</th><th>' + I.t('ad_wheel_th_limit') + '</th><th>' + I.t('ad_wheel_expiry') + '</th>' +
+        '<th>' + I.t('ad_wheel_min_order') + '</th><th>' + I.t('ad_wheel_prefix') + '</th><th>' + I.t('ad_wheel_th_color') + '</th>' +
+        '<th>' + I.t('ad_wheel_th_enabled') + '</th><th></th>' +
+        '</tr></thead><tbody id="wh-prize-rows"></tbody></table></div>' +
+        '<p class="hint mt-1">' + I.t('ad_wheel_max_awards_hint') + ' ' + I.t('ad_wheel_prob_err', { t: '' }).replace('\u2014 currently %.', '').replace('{t}', '') + '</p>' +
+        '</div>' +
+        '<div class="adm-card" id="wh-preview-card" hidden></div>';
+
+      var tbody = q('#wh-prize-rows');
+
+      function drawRows() {
+        tbody.innerHTML = prizes.map(function (p, i) {
+          return '<tr data-pi="' + i + '">' +
+            '<td><div class="adm-form-grid g2 wh-compact">' +
+            '<input class="input is-ltr" data-f="label_en" value="' + esc(p.label_en) + '" placeholder="EN">' +
+            '<input class="input" data-f="label_ar" value="' + esc(p.label_ar) + '" dir="rtl" placeholder="AR">' +
+            '<input class="input is-ltr" data-f="conditions_en" value="' + esc(p.conditions_en || '') + '" placeholder="' + I.t('ad_wheel_conditions_en') + '">' +
+            '<input class="input" data-f="conditions_ar" value="' + esc(p.conditions_ar || '') + '" dir="rtl" placeholder="' + I.t('ad_wheel_conditions_ar') + '">' +
+            '</div></td>' +
+            '<td><select class="input" data-f="prize_type">' +
+            ['percent_discount', 'fixed_discount', 'free_shipping', 'gift', 'none'].map(function (t) {
+              return '<option value="' + t + '"' + (p.prize_type === t ? ' selected' : '') + '>' + I.t('ad_wheel_type_' + ({ percent_discount: 'percent', fixed_discount: 'fixed', free_shipping: 'free', gift: 'gift', none: 'none' }[t])) + '</option>';
+            }).join('') + '</select></td>' +
+            '<td><input class="input is-ltr wh-narrow" data-f="value" inputmode="decimal" value="' + esc(p.value) + '"></td>' +
+            '<td><input class="input is-ltr wh-narrow" data-f="probability" inputmode="decimal" value="' + esc(p.probability) + '"></td>' +
+            '<td><input class="input is-ltr wh-narrow" data-f="max_awards" inputmode="numeric" value="' + esc(p.max_awards === null || p.max_awards === undefined ? '' : p.max_awards) + '" placeholder="&infin;"></td>' +
+            '<td><input class="input is-ltr wh-narrow" data-f="expiry_days" inputmode="numeric" value="' + esc(p.expiry_days === null || p.expiry_days === undefined ? '' : p.expiry_days) + '"></td>' +
+            '<td><input class="input is-ltr wh-narrow" data-f="min_order_value" inputmode="decimal" value="' + esc(p.min_order_value) + '"></td>' +
+            '<td><input class="input is-ltr wh-narrow" data-f="coupon_prefix" value="' + esc(p.coupon_prefix || 'BLUSH') + '"></td>' +
+            '<td><input class="input wh-color" type="color" data-f="color" value="' + esc(p.color || '#F72585') + '"></td>' +
+            '<td><button type="button" class="switch' + (p.is_enabled ? ' on' : '') + '" data-act="toggle"></button></td>' +
+            '<td><div class="row-actions">' +
+            '<button type="button" class="icon-sm" data-act="up" aria-label="' + I.t('ad_hcat_up') + '">' + UI.icon('chevUp', 14) + '</button>' +
+            '<button type="button" class="icon-sm" data-act="down" aria-label="' + I.t('ad_hcat_down') + '">' + UI.icon('chevDown', 14) + '</button>' +
+            '<button type="button" class="icon-sm" data-act="del" aria-label="' + I.t('ad_delete') + '">' + UI.icon('trash', 15) + '</button>' +
+            '</div></td></tr>';
+        }).join('');
+
+        qa('[data-pi]', tbody).forEach(function (tr) {
+          var i = Number(tr.dataset.pi);
+          qa('[data-f]', tr).forEach(function (inp) {
+            var f = inp.dataset.f;
+            if (inp.type === 'checkbox') return;
+            inp.addEventListener('change', function () {
+              prizes[i][f] = (f === 'value' || f === 'probability' || f === 'min_order_value')
+                ? (parseFloat(this.value) || 0)
+                : (f === 'max_awards' || f === 'expiry_days')
+                  ? (this.value.trim() === '' ? null : parseInt(this.value, 10))
+                  : this.value;
+              if (f === 'probability') prizes[i].probability = Math.min(100, Math.max(0, prizes[i].probability || 0));
+              updateBadge();
+            });
+            if (inp.tagName === 'SELECT' || inp.type === 'color') {
+              inp.addEventListener('input', function () {
+                prizes[i][f] = this.value;
+                updateBadge();
+              });
+            }
+          });
+          qa('[data-act]', tr).forEach(function (b) {
+            b.addEventListener('click', function () {
+              var act = b.dataset.act;
+              if (act === 'toggle') {
+                prizes[i].is_enabled = !prizes[i].is_enabled;
+                b.classList.toggle('on', prizes[i].is_enabled);
+                updateBadge();
+              } else if (act === 'up' && i > 0) {
+                var t = prizes[i]; prizes[i] = prizes[i - 1]; prizes[i - 1] = t; drawRows();
+              } else if (act === 'down' && i < prizes.length - 1) {
+                var t2 = prizes[i]; prizes[i] = prizes[i + 1]; prizes[i + 1] = t2; drawRows();
+              } else if (act === 'del') {
+                if (prizes[i].id) removedIds.push(prizes[i].id);
+                prizes.splice(i, 1);
+                drawRows();
+              }
+            });
+          });
+        });
+        updateBadge();
+      }
+
+      function updateBadge() {
+        var badge = q('#wh-prob-badge');
+        if (!badge) return;
+        var sum = Math.round(wheelProbSum(prizes) * 100) / 100;
+        var ok = Math.abs(sum - 100) < 0.005;
+        badge.outerHTML = '<span id="wh-prob-badge">' + pill(
+          sum + '%',
+          ok ? 'pill-ok' : 'pill-err'
+        ) + '</span>';
+        var drift = q('#wh-drift');
+        if (drift) {
+          var capacityChanged = prizes.some(function (p) {
+            return p.is_enabled && p.max_awards !== null && p.max_awards !== undefined &&
+              Number(p.awards_granted || 0) >= Number(p.max_awards);
+          });
+          drift.hidden = !(campaign && campaign.published_at && (!ok || capacityChanged));
+          if (!drift.hidden) drift.textContent = I.t('ad_wheel_drift');
+        }
+      }
+
+      function validate() {
+        if (!q('#wh-title-en', host).value.trim()) { UI.toast(I.t('ad_wheel_err_title'), 'error'); return null; }
+        for (var i = 0; i < prizes.length; i++) {
+          var p = prizes[i];
+          if (!String(p.label_en || '').trim()) { UI.toast(I.t('ad_wheel_err_prize_label'), 'error'); return null; }
+          if (p.prize_type === 'percent_discount' && (Number(p.value) < 0 || Number(p.value) > 100)) {
+            UI.toast(I.t('ad_wheel_err_value'), 'error'); return null;
+          }
+          if (p.prize_type === 'fixed_discount' && Number(p.value) < 0) {
+            UI.toast(I.t('ad_wheel_err_value'), 'error'); return null;
+          }
+          if (p.is_enabled && (Number(p.probability) < 0 || Number(p.probability) > 100)) {
+            UI.toast(I.t('ad_wheel_err_prob'), 'error'); return null;
+          }
+        }
+        var sum = Math.round(wheelProbSum(prizes) * 100) / 100;
+        if (prizes.length && Math.abs(sum - 100) >= 0.005) {
+          UI.toast(I.t('ad_wheel_prob_err', { t: String(sum) }), 'error');
+          return null;
+        }
+        return true;
+      }
+
+      function saveCampaign(extra) {
+        var payload = {
+          title_en: q('#wh-title-en', host).value.trim(),
+          title_ar: q('#wh-title-ar', host).value.trim(),
+          description_en: q('#wh-desc-en', host).value.trim(),
+          description_ar: q('#wh-desc-ar', host).value.trim(),
+          instructions_en: q('#wh-instr-en', host).value.trim(),
+          instructions_ar: q('#wh-instr-ar', host).value.trim(),
+          status: q('#wh-status', host).value,
+          start_at: localToIso(q('#wh-start', host).value),
+          end_at: localToIso(q('#wh-end', host).value)
+        };
+        if (payload.start_at && payload.end_at && new Date(payload.start_at) >= new Date(payload.end_at)) {
+          UI.toast(I.t('ad_popup_err_dates'), 'error');
+          return Promise.reject(new Error('dates'));
+        }
+        if (payload.start_at || payload.end_at) { /* window validated by the check above */ }
+        if (extra && extra.publish) {
+          payload.status = 'enabled';
+          payload.published_at = new Date().toISOString();
+        }
+        return (campaign
+          ? sb.from('wheel_campaigns').update(payload).eq('id', campaign.id).select().single()
+          : sb.from('wheel_campaigns').insert(payload).select().single()
+        ).then(function (r) {
+          if (r.error) throw r.error;
+          campaign = r.data;
+          isNewCampaign = false;
+          return campaign;
+        });
+      }
+
+      function savePrizes() {
+        var chain = Promise.resolve();
+        removedIds.forEach(function (id) {
+          chain = chain.then(function () {
+            return sb.from('wheel_prizes').delete().eq('id', id)
+              .then(function (r) { if (r.error) throw r.error; });
+          });
+        });
+        removedIds = [];
+        prizes.forEach(function (p, i) {
+          var row = {
+            campaign_id: campaign.id,
+            position: i,
+            label_en: String(p.label_en || '').trim(),
+            label_ar: String(p.label_ar || '').trim(),
+            prize_type: p.prize_type,
+            value: Number(p.value) || 0,
+            probability: Math.min(100, Math.max(0, Number(p.probability) || 0)),
+            max_awards: p.max_awards === null || p.max_awards === undefined || p.max_awards === '' ? null : parseInt(p.max_awards, 10),
+            expiry_days: p.expiry_days === null || p.expiry_days === undefined || p.expiry_days === '' ? null : parseInt(p.expiry_days, 10),
+            min_order_value: Number(p.min_order_value) || 0,
+            conditions_en: String(p.conditions_en || '').trim(),
+            conditions_ar: String(p.conditions_ar || '').trim(),
+            coupon_prefix: String(p.coupon_prefix || 'BLUSH').trim(),
+            color: p.color || '',
+            is_enabled: !!p.is_enabled
+          };
+          chain = chain.then(function () {
+            var op = p.id
+              ? sb.from('wheel_prizes').update(row).eq('id', p.id).select().single()
+              : sb.from('wheel_prizes').insert(row).select().single();
+            return op.then(function (r) {
+              if (r.error) throw r.error;
+              prizes[i] = Object.assign({}, r.data);
+            });
+          });
+        });
+        return chain;
+      }
+
+      q('#wh-add').addEventListener('click', function () {
+        prizes.push({
+          label_en: '', label_ar: '', prize_type: 'none', value: 0,
+          probability: prizes.length ? 0 : 100, color: '',
+          max_awards: null, awards_granted: 0, expiry_days: 30,
+          min_order_value: 0, conditions_en: '', conditions_ar: '',
+          coupon_prefix: 'BLUSH', is_enabled: true
+        });
+        drawRows();
+      });
+      q('#wh-save').addEventListener('click', function () {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        if (!validate()) return;
+        var btn = this;
+        btn.disabled = true;
+        saveCampaign({}).then(savePrizes).then(function () {
+          cache.wheel = null;
+          UI.toast(I.t('ad_wheel_saved'), 'ok');
+          renderWheel(host);
+        }).catch(function (err) {
+          btn.disabled = false;
+          UI.toast(err.message || I.t('error_generic'), 'error');
+        });
+      });
+      q('#wh-publish').addEventListener('click', function () {
+        if (state.preview) { UI.toast(I.t('ad_demo_readonly'), 'info'); return; }
+        if (!validate()) return;
+        var sum = Math.round(wheelProbSum(prizes) * 100) / 100;
+        if (!prizes.length || Math.abs(sum - 100) >= 0.005) {
+          UI.toast(I.t('ad_wheel_prob_err', { t: String(sum) }), 'error');
+          return;
+        }
+        var btn = this;
+        btn.disabled = true;
+        saveCampaign({ publish: true }).then(savePrizes).then(function () {
+          cache.wheel = null;
+          UI.toast(I.t('ad_wheel_published'), 'ok');
+          renderWheel(host);
+        }).catch(function (err) {
+          btn.disabled = false;
+          UI.toast(err.message || I.t('error_generic'), 'error');
+        });
+      });
+      q('#wh-preview').addEventListener('click', function () {
+        var segs = prizes.filter(function (p) { return p.is_enabled; }).map(function (p) {
+          return { color: p.color || '', label_en: p.label_en, label_ar: p.label_ar, position: prizes.indexOf(p) };
+        });
+        if (segs.length < 2) { UI.toast(I.t('ad_wheel_err_prize_label'), 'error'); return; }
+        var card = q('#wh-preview-card');
+        card.hidden = false;
+        card.innerHTML =
+          '<div class="flex-between mb-2"><h2 style="margin:0">' + I.t('ad_wheel_preview') + '</h2>' +
+          '<button type="button" class="btn btn-ghost btn-sm" id="wh-preview-close">' + I.t('close') + '</button></div>' +
+          '<p class="hint mb-2">' + I.t('ad_wheel_preview_note') + '</p>' +
+          '<div class="bb-wheel-stage bb-wheel-stage-admin">' +
+          '<div class="bb-wheel-pointer">' + UI.icon('chevDown', 18) + '</div>' +
+          '<div class="bb-wheel-disc bb-wheel-disc-admin" style="background:' + wheelGradient(segs) + '">' +
+          segs.map(function (s, i) {
+            var seg = 360 / segs.length;
+            var mid = i * seg + seg / 2;
+            return '<span class="bb-wheel-label" style="transform:rotate(' + mid.toFixed(1) + 'deg)"><b>' +
+              esc(I.lang === 'ar' ? (s.label_ar || s.label_en) : (s.label_en || s.label_ar)) + '</b></span>';
+          }).join('') +
+          '</div></div>' +
+          '<div class="adm-modal-footer" style="justify-content:center">' +
+          '<button type="button" class="btn btn-primary" id="wh-preview-spin">' + I.t('wheel_spin') + '</button></div>';
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        q('#wh-preview-close').addEventListener('click', function () {
+          card.hidden = true; card.innerHTML = '';
+        });
+        q('#wh-preview-spin').addEventListener('click', function () {
+          var disc = q('.bb-wheel-disc-admin', card);
+          var idx = Math.floor(Math.random() * segs.length);
+          var seg = 360 / segs.length;
+          disc.style.transform = 'rotate(' + (360 * 4 + (360 - (idx * seg + seg / 2))).toFixed(2) + 'deg)';
+          setTimeout(function () { UI.toast(I.t('ad_wheel_preview_note'), 'info'); }, 3500);
+        });
+      });
+
+      drawRows();
+    }).catch(function (err) {
+      host.innerHTML = '<div class="adm-card adm-danger"><p>' + esc(err.message || I.t('error_generic')) + '</p></div>';
+    });
+  }
+
+  /* ============================================================
+     Run 12 — Marketing: Campaign Analytics
+  ============================================================ */
+  function renderWheelAnalytics(host) {
+    if (state.preview) {
+      host.innerHTML = '<div class="adm-card"><h2>' + I.t('ad_wa_title') + '</h2>' +
+        '<p class="hint mt-1">' + I.t('ad_wa_hint') + '</p>' +
+        '<p class="muted">' + I.t('ad_wa_offline') + '</p></div>';
+      return;
+    }
+    Promise.all([
+      sb.from('wheel_campaigns').select('*').order('created_at', { ascending: false }),
+      sb.from('wheel_participations').select('*').order('created_at', { ascending: false }),
+      sb.from('wheel_prizes').select('*'),
+      sb.from('wheel_coupons').select('*')
+    ]).then(function (res) {
+      if (res[0].error) throw res[0].error;
+      if (res[1].error) throw res[1].error;
+      if (res[2].error) throw res[2].error;
+      if (res[3].error) throw res[3].error;
+      var campaigns = res[0].data || [];
+      var participations = res[1].data || [];
+      var prizes = res[2].data || [];
+      var coupons = res[3].data || [];
+      var campById = {};
+      campaigns.forEach(function (c) { campById[c.id] = c; });
+
+      host.innerHTML =
+        '<div class="adm-card"><h2>' + I.t('ad_wa_title') + '</h2>' +
+        '<p class="hint mt-1">' + I.t('ad_wa_hint') + '</p>' +
+        '<div class="adm-toolbar" style="margin-top:12px">' +
+        '<span class="overline">' + I.t('ad_period') + '</span>' +
+        '<input class="input" type="date" id="wa-from" aria-label="' + I.t('ad_wa_from') + '">' +
+        '<input class="input" type="date" id="wa-to" aria-label="' + I.t('ad_wa_to') + '">' +
+        '<button type="button" class="btn btn-sm btn-primary" id="wa-apply">' + I.t('ad_apply') + '</button>' +
+        '</div><div id="wa-body"></div></div>';
+
+      function inRange(iso) {
+        var f = q('#wa-from').value ? new Date(q('#wa-from').value + 'T00:00:00') : null;
+        var t = q('#wa-to').value ? new Date(q('#wa-to').value + 'T23:59:59') : null;
+        var d = iso ? new Date(iso) : null;
+        if (!d || isNaN(d.getTime())) return false;
+        return (!f || d >= f) && (!t || d <= t);
+      }
+
+      function draw() {
+        var spins = participations.filter(function (p) { return inRange(p.created_at); });
+        var seen = {};
+        spins.forEach(function (p) {
+          var k = p.user_id ? 'u:' + p.user_id : 't:' + p.participant_token;
+          seen[k] = true;
+        });
+        var awarded = spins.filter(function (p) {
+          var snap = p.prize_snapshot || {};
+          return snap.type && snap.type !== 'none';
+        });
+        var redeemed = coupons.filter(function (c) { return c.redeemed_at && inRange(c.redeemed_at); });
+        var conversion = awarded.length ? Math.round((redeemed.length / awarded.length) * 100) : 0;
+
+        var perPrize = prizes.map(function (pz) {
+          var count = spins.filter(function (p) {
+            return p.prize_id === pz.id || (p.prize_snapshot && p.prize_snapshot.prize_id === pz.id);
+          }).length;
+          var red = coupons.filter(function (c) { return c.prize_id === pz.id && c.redeemed_at; }).length;
+          var limit = pz.max_awards;
+          var remaining = limit === null || limit === undefined ? null : Math.max(0, Number(limit) - Number(pz.awards_granted || 0));
+          return { label: I.lang === 'ar' ? (pz.label_ar || pz.label_en) : (pz.label_en || pz.label_ar), count: count, limit: limit, remaining: remaining, redeemed: red, enabled: pz.is_enabled };
+        }).filter(function (r) { return r.count > 0 || r.redeemed > 0 || r.enabled; });
+
+        q('#wa-body').innerHTML =
+          '<div class="metric-grid" style="margin-top:14px">' +
+          metric(I.t('ad_wa_spins'), String(spins.length), '', false) +
+          metric(I.t('ad_wa_unique'), String(Object.keys(seen).length), '', false) +
+          metric(I.t('ad_wa_redemptions'), String(redeemed.length), '', false) +
+          metric(I.t('ad_wa_conversion'), conversion + '%', '', false) +
+          '</div>' +
+          (perPrize.length
+            ? '<div class="adm-table-wrap mt-2"><table class="adm-table"><thead><tr>' +
+              '<th>' + I.t('ad_wa_th_prize') + '</th><th>' + I.t('ad_wa_th_awarded') + '</th><th>' + I.t('ad_wa_th_limit') + '</th>' +
+              '<th>' + I.t('ad_wa_th_remaining') + '</th><th>' + I.t('ad_wa_th_redeemed') + '</th>' +
+              '</tr></thead><tbody>' +
+              perPrize.map(function (r) {
+                return '<tr><td>' + esc(r.label || '\u2014') + '</td><td>' + r.count + '</td>' +
+                  '<td>' + (r.limit === null || r.limit === undefined ? '\u221e' : r.limit) + '</td>' +
+                  '<td>' + (r.remaining === null ? '\u221e' : r.remaining) + '</td>' +
+                  '<td>' + r.redeemed + '</td></tr>';
+              }).join('') + '</tbody></table></div>'
+            : '<p class="muted mt-2">' + I.t('ad_wa_empty') + '</p>');
+      }
+
+      q('#wa-apply').addEventListener('click', draw);
+      draw();
+    }).catch(function (err) {
+      host.innerHTML = '<div class="adm-card adm-danger"><p>' + esc(err.message || I.t('error_generic')) + '</p></div>';
+    });
+  }
+
+  /* ============================================================
+     Run 12 — Business Overview: Inventory Valuation + Gross Profit
+     All numbers come from the inventory_valuation() security-definer
+     RPC (server-side). Cost data is admin-only by design and is NEVER
+     rendered on the storefront or through any public API.
+  ============================================================ */
+  var valState = { data: null, search: '', cat: 'all', sortKey: 'sku', sortDir: 1 };
+
+  function loadValuation() {
+    if (state.preview) return Promise.resolve(null);
+    return DB.getInventoryValuation().then(function (data) {
+      valState.data = data;
+      return data;
+    });
+  }
+
+  function valuationOffline(host, titleKey, hintKey) {
+    host.innerHTML = '<div class="adm-card"><h2>' + I.t(titleKey) + '</h2>' +
+      '<p class="hint mt-1">' + I.t(hintKey) + '</p>' +
+      '<p class="muted">' + I.t('ad_val_offline') + '</p></div>';
+  }
+
+  function renderValuationView(host, titleKey, hintKey) {
+    if (state.preview) return valuationOffline(host, titleKey, hintKey);
+    host.innerHTML = '<div class="skel" style="height:120px"></div>';
+    loadValuation().then(function (v) {
+      if (!v) return valuationOffline(host, titleKey, hintKey);
+      var totals = v.totals || {};
+      var products = v.products || [];
+      var missing = v.missing_cost || { count: 0, skus: [] };
+      var excl = v.excluded || {};
+
+      /* category filter options from the returned rows */
+      var cats = {};
+      products.forEach(function (p) {
+        var name = I.lang === 'ar' ? (p.category_name_ar || p.category_name_en) : (p.category_name_en || p.category_name_ar);
+        if (p.category_id && name) cats[p.category_id] = name;
+      });
+
+      host.innerHTML =
+        '<div class="adm-card"><h2>' + I.t(titleKey) + '</h2>' +
+        '<p class="hint mt-1">' + I.t(hintKey) + '</p>' +
+        '<div class="metric-grid" style="margin-top:14px">' +
+        metric(I.t('ad_val_cost'), money(totals.inventory_cost_value || 0), I.t('ad_val_note'), false) +
+        metric(I.t('ad_val_retail'), money(totals.inventory_retail_value || 0), '', false) +
+        metric(I.t('ad_val_profit'), money(totals.expected_gross_profit || 0),
+          missing.count ? I.t('ad_val_missing', { n: missing.count }) : '', false) +
+        metric(I.t('ad_val_margin'), (totals.expected_gross_margin_pct === null || totals.expected_gross_margin_pct === undefined) ? '\u2014' : totals.expected_gross_margin_pct + '%', '', false) +
+        '</div>' +
+        '<p class="hint mt-2">' + UI.icon('info', 13) + ' ' + I.t('ad_val_note') + '</p>' +
+        '<p class="hint">' + UI.icon('info', 13) + ' ' + I.t('ad_val_excluded', { i: excl.inactive || 0, d: excl.demo || 0, o: excl.out_of_stock || 0 }) + '</p>' +
+        '</div>' +
+
+        (missing.count
+          ? '<div class="adm-card adm-warn"><h2>' + I.t('ad_val_missing', { n: missing.count }) + '</h2>' +
+            '<p class="hint mt-1">' + I.t('ad_val_missing_hint') + '</p>' +
+            '<div class="row-actions mt-2">' +
+            (missing.skus || []).slice(0, 12).map(function (sku) { return pill(sku, 'pill-err'); }).join(' ') +
+            ((missing.skus || []).length > 12 ? pill('+' + (missing.skus.length - 12), '') : '') +
+            '</div></div>'
+          : '') +
+
+        '<div class="adm-card">' +
+        '<div class="adm-toolbar" style="margin-bottom:12px">' +
+        '<input class="input" id="val-search" placeholder="' + I.t('ad_val_search') + '" value="' + esc(valState.search) + '">' +
+        '<select class="input" id="val-cat"><option value="all">' + I.t('ad_val_cat_all') + '</option>' +
+        Object.keys(cats).map(function (id) {
+          return '<option value="' + esc(id) + '"' + (valState.cat === id ? ' selected' : '') + '>' + esc(cats[id]) + '</option>';
+        }).join('') + '</select>' +
+        '</div>' +
+        '<div class="adm-table-wrap"><table class="adm-table" id="val-table"><thead><tr>' +
+        valTh('sku', 'ad_sku') + valTh('name', 'ad_th_name') + valTh('quantity', 'ad_val_th_qty') +
+        valTh('unit_cost', 'ad_val_th_cost') + valTh('unit_price', 'ad_val_th_price') +
+        valTh('total_cost', 'ad_val_th_total_cost') + valTh('potential_revenue', 'ad_val_th_revenue') +
+        valTh('expected_gross_profit', 'ad_val_th_profit') + '<th></th>' +
+        '</tr></thead><tbody id="val-rows"></tbody></table></div>' +
+        '</div>';
+
+      function valTh(key, labelKey) {
+        var arrow = valState.sortKey === key ? (valState.sortDir === 1 ? ' \u2191' : ' \u2193') : '';
+        return '<th><button type="button" class="th-sort" data-sort="' + key + '">' + I.t(labelKey) + arrow + '</button></th>';
+      }
+
+      function rows() {
+        var term = valState.search.toLowerCase();
+        return products.filter(function (p) {
+          if (valState.cat !== 'all' && p.category_id !== valState.cat) return false;
+          if (!term) return true;
+          return (String(p.sku || '') + ' ' + String(p.name_en || '') + ' ' + String(p.name_ar || '')).toLowerCase().indexOf(term) !== -1;
+        }).sort(function (a, b) {
+          var ka = a[valState.sortKey], kb = b[valState.sortKey];
+          if (valState.sortKey === 'name') {
+            ka = I.lang === 'ar' ? (a.name_ar || a.name_en) : (a.name_en || a.name_ar);
+            kb = I.lang === 'ar' ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+            return String(ka || '').localeCompare(String(kb || '')) * valState.sortDir;
+          }
+          if (ka === null || ka === undefined) return 1;
+          if (kb === null || kb === undefined) return -1;
+          return (Number(ka) - Number(kb)) * valState.sortDir;
+        });
+      }
+
+      function drawRows() {
+        q('#val-rows').innerHTML = rows().map(function (p) {
+          var name = I.lang === 'ar' ? (p.name_ar || p.name_en) : (p.name_en || p.name_ar);
+          return '<tr>' +
+            '<td class="is-ltr">' + esc(p.sku) + '</td>' +
+            '<td>' + esc(name) + '</td>' +
+            '<td>' + p.quantity + '</td>' +
+            '<td>' + (p.has_cost ? money(p.unit_cost) : '\u2014') + '</td>' +
+            '<td>' + money(p.unit_price) + '</td>' +
+            '<td>' + (p.has_cost ? money(p.total_cost) : '\u2014') + '</td>' +
+            '<td>' + money(p.potential_revenue) + '</td>' +
+            '<td>' + (p.has_cost ? money(p.expected_gross_profit) : '\u2014') + '</td>' +
+            '<td><button type="button" class="icon-sm" data-cost="' + esc(p.product_id) + '" data-sku="' + esc(p.sku) + '" data-cur="' + esc(p.unit_cost === null ? '' : p.unit_cost) + '" aria-label="' + I.t('ad_val_edit_cost') + '">' + UI.icon('edit', 15) + '</button></td>' +
+            '</tr>';
+        }).join('') || '<tr><td colspan="9" class="muted">' + I.t('ad_val_empty') + '</td></tr>';
+        qa('[data-cost]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            UI.confirm({
+              title: I.t('ad_val_edit_cost') + ' \u2014 ' + b.dataset.sku,
+              text: I.t('ad_val_cost_prompt'),
+              typeInput: true,
+              typeText: b.dataset.cur || '',
+              okLabel: I.t('ad_save')
+            }).then(function (val) {
+              if (val === null) return;
+              var raw = String(val).trim();
+              if (raw === '') {
+                DB.admin.removeProductCost(b.dataset.cost).then(function () {
+                  UI.toast(I.t('ad_val_cost_removed'), 'ok');
+                  renderValuationView(host, titleKey, hintKey);
+                }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+                return;
+              }
+              var cost = Number(raw);
+              if (isNaN(cost) || cost < 0) { UI.toast(I.t('ad_val_cost_err'), 'error'); return; }
+              DB.admin.saveProductCost(b.dataset.cost, cost).then(function () {
+                UI.toast(I.t('ad_val_cost_saved'), 'ok');
+                renderValuationView(host, titleKey, hintKey);
+              }).catch(function (err) { UI.toast(err.message || I.t('error_generic'), 'error'); });
+            });
+          });
+        });
+      }
+
+      function drawHead() {
+        q('#val-table thead').innerHTML = '<tr>' +
+          valTh('sku', 'ad_sku') + valTh('name', 'ad_th_name') + valTh('quantity', 'ad_val_th_qty') +
+          valTh('unit_cost', 'ad_val_th_cost') + valTh('unit_price', 'ad_val_th_price') +
+          valTh('total_cost', 'ad_val_th_total_cost') + valTh('potential_revenue', 'ad_val_th_revenue') +
+          valTh('expected_gross_profit', 'ad_val_th_profit') + '<th></th>' +
+          '</tr>';
+        qa('[data-sort]').forEach(function (bb) {
+          bb.addEventListener('click', function () {
+            var k2 = bb.dataset.sort;
+            if (valState.sortKey === k2) valState.sortDir = -valState.sortDir;
+            else { valState.sortKey = k2; valState.sortDir = 1; }
+            drawHead();
+            drawRows();
+          });
+        });
+      }
+
+      drawHead();
+      var searchEl = q('#val-search');
+      searchEl.addEventListener('input', function () {
+        valState.search = this.value;
+        drawRows();
+      });
+      q('#val-cat').addEventListener('change', function () {
+        valState.cat = this.value;
+        drawRows();
+      });
+      drawRows();
+    }).catch(function (err) {
+      host.innerHTML = '<div class="adm-card adm-danger"><p>' + esc(I.t('ad_val_error', { msg: err.message || I.t('error_generic') })) + '</p></div>';
+    });
+  }
+
+  function renderInventoryValuation(host) {
+    renderValuationView(host, 'ad_val_title', 'ad_val_hint');
+  }
+  function renderGrossProfit(host) {
+    renderValuationView(host, 'ad_gp_title', 'ad_gp_hint');
+  }
+
   function boot() {
     document.addEventListener('lang:change', function () {
       if (state.preview) { renderSidebar(); route(); }
@@ -2709,6 +4038,9 @@
         if (!ok) { renderNotAdmin(); return null; }
         buildShell();
         route();
+        /* Storage-cleanup run: retry image-file cleanups that failed in
+           earlier sessions (reference-checked again before each try). */
+        DB.admin.retryPendingCleanups();
         return null;
       });
     }).catch(function () {

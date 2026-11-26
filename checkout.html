@@ -171,9 +171,20 @@
         <aside class="summary-card" id="co-summary">
           <h2 data-i18n="co_summary"></h2>
           <div class="summary-items" id="co-items"></div>
+          <!-- Run 12: Wheel of Fortune coupon redemption. The code is
+             validated server-side (preview only) and consumed inside
+             create_order; the browser never computes the discount. -->
+          <div class="coupon-box">
+            <div class="coupon-row">
+              <input class="input is-ltr" id="co-coupon" autocomplete="off" spellcheck="false">
+              <button type="button" class="btn btn-outline btn-sm" id="co-coupon-apply"></button>
+            </div>
+            <p class="hint coupon-msg" id="co-coupon-msg" hidden></p>
+          </div>
           <div class="summary-rows">
             <div class="row"><span data-i18n="co_subtotal"></span><b id="co-subtotal"></b></div>
             <div class="row" id="row-discount" hidden><span data-i18n="co_discount"></span><b id="co-discount"></b></div>
+            <div class="row" id="row-coupon" hidden><span id="co-coupon-label"></span><b id="co-coupon-discount"></b></div>
             <div class="row"><span data-i18n="co_shipping"></span><b id="co-shipping"></b></div>
             <div class="row total"><span data-i18n="co_total"></span><b id="co-total"></b></div>
             <div class="row deposit"><span data-i18n="co_deposit_due"></span><b id="co-deposit"></b></div>

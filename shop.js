@@ -11,6 +11,15 @@
   var UI = window.UI, DB = window.DB, I = window.I18N;
 
   var PAGE_SIZE = 12;
+  /* Run 12: live main-category list for the filter chips and URL-slug
+     validation. Seeded with the two legacy categories so the filter
+     panel still renders if the categories query fails; replaced by the
+     LIVE rows in render() (dynamically managed homepage categories
+     must appear here without a code change). */
+  var shopCats = [
+    { slug: 'makeup', name_en: 'Makeup', name_ar: 'المكياج' },
+    { slug: 'perfumes', name_en: 'Perfumes and Body Splashes', name_ar: 'العطور وبودي سبلاش' }
+  ];
   var state = {
     cat: 'all',
     sub: '',
@@ -30,7 +39,12 @@
   function readUrl() {
     var u = new URLSearchParams(window.location.search);
     state.cat = u.get('cat') || 'all';
-    if (['makeup', 'perfumes', 'flash'].indexOf(state.cat) === -1 && state.cat !== 'all') state.cat = 'all';
+    /* 'flash' is the pseudo-category for live flash-sale items; every
+       other slug is validated against the LIVE categories in render().
+       (The previous hardcoded whitelist silently reset any category an
+       administrator created later.) */
+    if (state.cat !== 'all' && state.cat !== 'flash' &&
+        !/^[a-z0-9][a-z0-9-_]{0,119}$/.test(state.cat)) state.cat = 'all';
     state.sub = u.get('sub') || '';
     state.q = u.get('q') || '';
     state.sort = ['newest', 'best', 'price_asc', 'price_desc'].indexOf(u.get('sort')) !== -1 ? u.get('sort') : 'newest';
@@ -60,18 +74,22 @@
     var host = document.getElementById('filters-desktop');
     if (!host) return;
 
-    var catRows = [
-      { v: 'all', label: I.t('shop_all') },
-      { v: 'makeup', label: I.t('nav_makeup') },
-      { v: 'perfumes', label: I.t('nav_perfumes') },
-      { v: 'flash', label: I.t('nav_flash') }
-    ];
+    var catRows = shopCats.map(function (c) {
+      return {
+        v: c.slug,
+        label: I.lang === 'ar' ? (c.name_ar || c.name_en) : (c.name_en || c.name_ar)
+      };
+    });
+    catRows.unshift({ v: 'all', label: I.t('shop_all') });
+    catRows.push({ v: 'flash', label: I.t('nav_flash') });
 
+    var selCat = shopCats.filter(function (c) { return c.slug === state.cat; })[0] || null;
+    var selSubs = selCat ? state.subsList.filter(function (s) { return s.parent_id === selCat.id; }) : [];
     var subHtml = '';
-    if (state.showSubs && state.cat === 'makeup') {
+    if (state.showSubs && selSubs.length) {
       subHtml = '<div class="filter-group"><h3>' + I.t('shop_subcategory') + '</h3><div class="chips-row">' +
         '<button type="button" class="chip' + (state.sub === '' ? ' active' : '') + '" data-sub="">' + I.t('shop_all') + '</button>' +
-        state.subsList.map(function (s) {
+        selSubs.map(function (s) {
           return '<button type="button" class="chip' + (state.sub === s.slug ? ' active' : '') + '" data-sub="' + UI.esc(s.slug) + '">' +
             UI.esc(I.lang === 'ar' ? (s.name_ar || s.name_en) : (s.name_en || s.name_ar)) + '</button>';
         }).join('') +
@@ -308,6 +326,16 @@
       state.showSubs = s.show_subcategories !== false;
       return DB.getCategories();
     }).then(function (cats) {
+      /* Run 12: the chip list and URL-slug validation now use the LIVE
+         categories — admin-managed homepage categories work here with
+         no code change, and an unknown/renamed slug falls back to All
+         instead of silently resetting after the products load. */
+      shopCats = cats.filter(function (c) { return !c.parent_id && c.is_active; });
+      if (state.cat !== 'all' && state.cat !== 'flash' &&
+          !shopCats.some(function (c) { return c.slug === state.cat; })) {
+        state.cat = 'all';
+        writeUrl();
+      }
       state.subsList = cats.filter(function (c) {
         return c.parent_id && c.is_active && (c.product_count === undefined || c.product_count > 0);
       });

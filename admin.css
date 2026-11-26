@@ -459,4 +459,62 @@
 }
 .cat-img-preview .ph { width: 100%; height: 100%; }
 
+/* ---------------- Run 12: grouped navigation ---------------- */
+.adm-nav-group {
+  padding: 14px 20px 6px;
+  font-size: 10px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: rgba(251, 249, 246, .4);
+}
+.adm-nav-group:first-child { padding-top: 18px; }
+
+/* ---------------- Run 12: shared admin bits ---------------- */
+.adm-warn {
+  background: var(--pink-wash);
+  border: 1px solid var(--pink);
+  color: var(--ink);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  margin-bottom: 12px;
+}
+.pill-err { background: #F6DAD7; color: var(--red); }
+.adm-link-chip {
+  display: inline-block;
+  font-size: 11.5px;
+  font-family: var(--font-body);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+  color: var(--ink-2);
+  text-decoration: none;
+  direction: ltr;
+}
+.adm-link-chip:hover { color: var(--ink); border-color: var(--line-strong); }
+.th-sort {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+.hc-current { margin-top: 10px; display: flex; gap: 8px; }
+
+/* Wheel admin table: dense inline prize editing */
+.wh-prizes .wh-compact { gap: 6px; }
+.wh-prizes .wh-narrow { width: 72px; }
+.wh-prizes .wh-color { width: 44px; padding: 2px; height: 34px; }
+.wh-prizes input.input, .wh-prizes select.input { font-size: 12px; padding: 6px 8px; }
+
+/* Popup preview stage (mirrors the storefront card) */
+.pp-preview-stage {
+  background: var(--surface-2);
+  padding: 26px 14px;
+  display: flex;
+  justify-content: center;
+}
+
 @media print { .adm-side, .adm-top, #toast-root { display: none !important; } }

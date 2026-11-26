@@ -44,6 +44,7 @@
     upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 9 5-5 5 5"/><path d="M12 4v10"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-4.5-4.5L7 21"/>',
     filter: '<path d="M4 6h16M7 12h10m-7 6h4"/>',
+    gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/>',
     tag: '<path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.43 2.43 0 0 0 3.4 0l6.6-6.6a2.43 2.43 0 0 0 0-3.4Z"/><circle cx="7.5" cy="7.5" r="1.2"/>',
     grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
@@ -882,6 +883,333 @@
     document.addEventListener('wish:change', updateCounts);
   }
 
+  /* ================================================================
+     Run 12 — Entry Promotion Popup (admin-configured, Supabase-driven)
+     Content, timing, frequency and the campaign window all come from
+     homepage_settings; nothing promotional is hardcoded. The popup is
+     optional by design: any failure here silently skips it and NEVER
+     breaks the page. Checkout and the order-confirmation page are
+     excluded so the purchase flow is never interrupted.
+     ================================================================ */
+  var POPUP_SEEN_KEY = 'bb_popup_seen_v1';
+  var POPUP_EXCLUDED_PAGES = ['checkout.html', 'order-confirm.html'];
+
+  function promoPageAllowed() {
+    var p = (window.location.pathname || '').split('/').pop() || '';
+    return POPUP_EXCLUDED_PAGES.indexOf(p) === -1;
+  }
+
+  function safeHref(url) {
+    var u = String(url || '').trim();
+    if (/^(https?:\/\/|\/)/i.test(u)) return u;
+    if (/^[a-z0-9-]+\.html([?#].*)?$/i.test(u)) return u;
+    return 'shop.html';
+  }
+
+  function popupSeen(cfg) {
+    var key = cfg.popup_campaign_key || 'default';
+    var freq = cfg.popup_frequency || 'per_session';
+    if (freq === 'every_visit') return false;
+    if (freq === 'per_session') {
+      try { return sessionStorage.getItem('bb_popup_session') === key; }
+      catch (e) { return false; }
+    }
+    var store;
+    try { store = JSON.parse(localStorage.getItem(POPUP_SEEN_KEY) || '{}'); }
+    catch (e2) { store = {}; }
+    if (freq === 'per_day') return store.k === key && store.d === new Date().toISOString().slice(0, 10);
+    return store.k === key && store.c === true; /* per_campaign */
+  }
+
+  function popupMarkSeen(cfg) {
+    var key = cfg.popup_campaign_key || 'default';
+    var freq = cfg.popup_frequency || 'per_session';
+    try {
+      if (freq === 'per_session') {
+        sessionStorage.setItem('bb_popup_session', key);
+        return;
+      }
+      var store;
+      try { store = JSON.parse(localStorage.getItem(POPUP_SEEN_KEY) || '{}'); }
+      catch (e) { store = {}; }
+      store.k = key;
+      if (freq === 'per_day') store.d = new Date().toISOString().slice(0, 10);
+      else store.c = true; /* per_campaign */
+      localStorage.setItem(POPUP_SEEN_KEY, JSON.stringify(store));
+    } catch (e2) { /* storage unavailable — popup just becomes every-visit */ }
+  }
+
+  function popupInWindow(cfg) {
+    var now = new Date();
+    if (cfg.popup_start_at && new Date(cfg.popup_start_at) > now) return false;
+    if (cfg.popup_end_at && new Date(cfg.popup_end_at) < now) return false;
+    return true;
+  }
+
+  function renderPopup(cfg) {
+    var mode = cfg.popup_mode || 'both';
+    var hasImage = mode !== 'text' && !!cfg.popup_image_url;
+    var hasText = mode !== 'image';
+    var back = document.createElement('div');
+    back.className = 'bb-popup-backdrop';
+    back.innerHTML =
+      '<div class="bb-popup' + (hasImage && hasText ? ' has-image' : '') + '" role="dialog" aria-modal="true">' +
+      '<button type="button" class="bb-popup-x icon-btn" aria-label="' + esc(I.t('close')) + '">' + icon('x', 20) + '</button>' +
+      (hasImage ? '<div class="bb-popup-media"><img src="' + esc(cfg.popup_image_url) + '" alt="' +
+        esc(I.lang === 'ar' ? (cfg.popup_title_ar || cfg.popup_title_en || '') : (cfg.popup_title_en || cfg.popup_title_ar || '')) + '"></div>' : '') +
+      (hasText ? '<div class="bb-popup-body">' +
+        (cfg.popup_subtitle_en || cfg.popup_subtitle_ar ? '<p class="overline">' +
+          esc(I.lang === 'ar' ? (cfg.popup_subtitle_ar || cfg.popup_subtitle_en) : (cfg.popup_subtitle_en || cfg.popup_subtitle_ar)) + '</p>' : '') +
+        (cfg.popup_title_en || cfg.popup_title_ar ? '<h2 class="display-2">' +
+          esc(I.lang === 'ar' ? (cfg.popup_title_ar || cfg.popup_title_en) : (cfg.popup_title_en || cfg.popup_title_ar)) + '</h2>' : '') +
+        (cfg.popup_description_en || cfg.popup_description_ar ? '<p class="bb-popup-desc">' +
+          esc(I.lang === 'ar' ? (cfg.popup_description_ar || cfg.popup_description_en) : (cfg.popup_description_en || cfg.popup_description_ar)) + '</p>' : '') +
+        (cfg.popup_discount_en || cfg.popup_discount_ar ? '<p class="bb-popup-discount">' +
+          esc(I.lang === 'ar' ? (cfg.popup_discount_ar || cfg.popup_discount_en) : (cfg.popup_discount_en || cfg.popup_discount_ar)) + '</p>' : '') +
+        (cfg.popup_cta_text_en || cfg.popup_cta_text_ar || cfg.popup_cta_url ?
+          '<a class="btn btn-primary bb-popup-cta" href="' + esc(safeHref(cfg.popup_cta_url)) + '">' +
+          esc(I.lang === 'ar' ? (cfg.popup_cta_text_ar || cfg.popup_cta_text_en || I.t('banner_cta')) : (cfg.popup_cta_text_en || cfg.popup_cta_text_ar || I.t('banner_cta'))) + '</a>' : '') +
+        '</div>' : '') +
+      '</div>';
+    document.body.appendChild(back);
+    document.body.classList.add('no-scroll');
+    /* Activation on the next frame so the CSS entrance transition runs
+       (the stylesheet disables transforms under prefers-reduced-motion). */
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { back.classList.add('open'); });
+    });
+    popupMarkSeen(cfg);
+    function close() {
+      back.classList.remove('open');
+      document.body.classList.remove('no-scroll');
+      setTimeout(function () { back.remove(); }, 220);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    back.querySelector('.bb-popup-x').addEventListener('click', close);
+    back.addEventListener('click', function (e) { if (e.target === back) close(); });
+    document.addEventListener('keydown', onKey);
+  }
+
+  function initPopup() {
+    if (!promoPageAllowed()) return;
+    DB.getHomepage().then(function (hp) {
+      if (!hp || !hp.popup_enabled || !popupInWindow(hp)) return;
+      if (popupSeen(hp)) return;
+      var delay = Number(hp.popup_delay_seconds);
+      if (isNaN(delay)) delay = 3;
+      delay = Math.max(0, Math.min(60, delay));
+      setTimeout(function () { renderPopup(hp); }, delay * 1000);
+    }).catch(function () { /* optional feature — never break the page */ });
+  }
+
+  /* ================================================================
+     Run 12 — Wheel of Fortune (storefront)
+     The wheel ONLY LOOKS like the decision-maker: the winning segment
+     is chosen by the wheel_spin() database function behind the
+     wheel-spin Edge Function, and the result is displayed exclusively
+     from the server response. The animation is choreographed to land
+     on the server's segment afterwards.
+     ================================================================ */
+  var WHEEL_FAB_ID = 'bb-wheel-fab';
+
+  function wheelLang(st, en, ar) {
+    return I.lang === 'ar' ? (ar || en || '') : (en || ar || '');
+  }
+
+  function wheelErrorKey(message) {
+    var m = String(message || '');
+    if (/already/i.test(m)) return 'wheel_already';
+    if (/ended/i.test(m)) return 'wheel_err_ended';
+    if (/not started/i.test(m)) return 'wheel_err_notstarted';
+    if (/not active/i.test(m)) return 'wheel_err_inactive';
+    if (/administrator review|temporarily unavailable/i.test(m)) return 'wheel_err_review';
+    if (/too many attempts/i.test(m)) return 'wheel_err_rate';
+    return null;
+  }
+
+  function initWheel() {
+    if (!promoPageAllowed()) return;
+    if (document.getElementById(WHEEL_FAB_ID)) return;
+    DB.wheelState().then(function (st) {
+      if (!st || !st.active || st.participated) return;
+      var segs = (st.segments || []).filter(function (s) { return !!s; });
+      if (segs.length < 2) return;
+      var fab = document.createElement('button');
+      fab.type = 'button';
+      fab.id = WHEEL_FAB_ID;
+      fab.className = 'bb-wheel-fab';
+      fab.setAttribute('aria-label', I.t('wheel_fab'));
+      fab.innerHTML = icon('gift', 22) + '<span>' + esc(I.t('wheel_fab')) + '</span>';
+      fab.addEventListener('click', function () { openWheelModal(st, segs); });
+      document.body.appendChild(fab);
+    }).catch(function () { /* optional feature — skip silently */ });
+  }
+
+  function wheelGradient(segs) {
+    /* conic-gradient stops for the visual wheel; colours cycle through
+       the brand palette when a segment has no configured colour. */
+    var tones = ['#F72585', '#B5179E', '#7209B7', '#560BAD', '#F8E9F1', '#FFB3C6'];
+    var stops = [], acc = 0;
+    var step = 360 / segs.length;
+    segs.forEach(function (s, i) {
+      var c = s.color || tones[i % tones.length];
+      stops.push(c + ' ' + acc.toFixed(2) + 'deg ' + (acc + step).toFixed(2) + 'deg');
+      acc += step;
+    });
+    return 'conic-gradient(' + stops.join(', ') + ')';
+  }
+
+  function openWheelModal(st, segs) {
+    var fab = document.getElementById(WHEEL_FAB_ID);
+    var back = document.createElement('div');
+    back.className = 'bb-wheel-backdrop';
+    back.innerHTML =
+      '<div class="bb-wheel" role="dialog" aria-modal="true">' +
+      '<button type="button" class="bb-wheel-x icon-btn" aria-label="' + esc(I.t('close')) + '">' + icon('x', 20) + '</button>' +
+      '<p class="overline">' + esc(I.t('wheel_fab')) + '</p>' +
+      '<h2 class="display-2">' + esc(wheelLang(st, st.title_en, st.title_ar) || I.t('wheel_default_title')) + '</h2>' +
+      (wheelLang(st, st.description_en, st.description_ar) ? '<p class="bb-wheel-desc">' + esc(wheelLang(st, st.description_en, st.description_ar)) + '</p>' : '') +
+      '<div class="bb-wheel-stage">' +
+      '<div class="bb-wheel-pointer">' + icon('chevDown', 18) + '</div>' +
+      '<div class="bb-wheel-disc" style="background:' + wheelGradient(segs) + '">' +
+      segs.map(function (s, i) {
+        var seg = 360 / segs.length;
+        var mid = i * seg + seg / 2;
+        return '<span class="bb-wheel-label" style="transform:rotate(' + mid.toFixed(1) + 'deg)">' +
+          '<b>' + esc(wheelLang(st, s.label_en, s.label_ar)) + '</b></span>';
+      }).join('') +
+      '</div></div>' +
+      (wheelLang(st, st.instructions_en, st.instructions_ar) ? '<p class="hint bb-wheel-instr">' + esc(wheelLang(st, st.instructions_en, st.instructions_ar)) + '</p>' : '') +
+      '<div class="bb-wheel-actions"><button type="button" class="btn btn-primary" id="bb-wheel-go">' + esc(I.t('wheel_spin')) + '</button></div>' +
+      '<div class="bb-wheel-result" hidden></div>' +
+      '</div>';
+    document.body.appendChild(back);
+    document.body.classList.add('no-scroll');
+    if (fab) fab.style.display = 'none';
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { back.classList.add('open'); });
+    });
+
+    var disc = back.querySelector('.bb-wheel-disc');
+    var go = back.querySelector('#bb-wheel-go');
+    var result = back.querySelector('.bb-wheel-result');
+    var spinning = false;
+    var rotation = 0;
+
+    function close() {
+      back.classList.remove('open');
+      document.body.classList.remove('no-scroll');
+      setTimeout(function () { back.remove(); }, 220);
+      document.removeEventListener('keydown', onKey);
+      /* After a recorded participation the FAB stays hidden — the next
+         wheelState() call reports participated=true anyway. */
+      if (participated && fab) fab.remove();
+    }
+    var participated = false;
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    back.querySelector('.bb-wheel-x').addEventListener('click', close);
+    back.addEventListener('click', function (e) { if (e.target === back) close(); });
+    document.addEventListener('keydown', onKey);
+
+    function showResult(r) {
+      var prize = r.prize || r; // already_participated payloads carry a snapshot
+      var type = prize.type || '';
+      var isNone = type === 'none';
+      var lines = '';
+      if (!isNone) {
+        lines += '<h3 class="bb-wheel-won">' + esc(I.t('wheel_you_won')) + '</h3>';
+        if (type === 'percent_discount') lines += '<p class="bb-wheel-prize">' + esc(I.t('wheel_prize_percent', { v: String(prize.value) })) + '</p>';
+        else if (type === 'fixed_discount') lines += '<p class="bb-wheel-prize">' + esc(I.t('wheel_prize_fixed', { v: I.fmtMoney(prize.value) })) + '</p>';
+        else if (type === 'free_shipping') lines += '<p class="bb-wheel-prize">' + esc(I.t('wheel_free_ship')) + '</p>';
+        else if (type === 'gift') lines += '<p class="bb-wheel-prize">' + esc(I.t('wheel_gift_note')) + '</p>';
+        var label = I.lang === 'ar' ? (prize.label_ar || prize.label_en) : (prize.label_en || prize.label_ar);
+        if (label) lines += '<p class="bb-wheel-prize-label">' + esc(label) + '</p>';
+        if (r.coupon_code) {
+          lines += '<p class="bb-wheel-coupon"><b>' + esc(r.coupon_code) + '</b>' +
+            '<button type="button" class="btn btn-ghost btn-sm" id="bb-wheel-copy">' + esc(I.t('wheel_copy')) + '</button></p>';
+        }
+        if (r.coupon_expires_at) lines += '<p class="hint">' + esc(I.t('wheel_valid_until', { d: I.fmtDate(r.coupon_expires_at) })) + '</p>';
+        var minOrder = r.coupon_min_order_value !== undefined ? r.coupon_min_order_value : r.min_order_value;
+        if (minOrder && Number(minOrder) > 0) {
+          lines += '<p class="hint">' + esc(I.t('wheel_min_order', { m: I.fmtMoney(minOrder) })) + '</p>';
+        }
+        var cond = I.lang === 'ar' ? (prize.conditions_ar || prize.conditions_en) : (prize.conditions_en || prize.conditions_ar);
+        if (cond) lines += '<p class="hint">' + esc(I.t('wheel_conditions')) + ': ' + esc(cond) + '</p>';
+      } else {
+        lines += '<h3 class="bb-wheel-won">' + esc(I.t('wheel_no_prize')) + '</h3>';
+      }
+      if (r.already_participated) {
+        lines = '<h3 class="bb-wheel-won">' + esc(I.t('wheel_already')) + '</h3>' + lines;
+      }
+      lines += '<p class="hint bb-wheel-anon-note">' + esc(I.t('wheel_anon_note')) + '</p>' +
+        '<div class="bb-wheel-actions"><button type="button" class="btn btn-outline" id="bb-wheel-close2">' + esc(I.t('close')) + '</button></div>';
+      result.innerHTML = lines;
+      result.hidden = false;
+      go.parentElement.hidden = true;
+      participated = true;
+      var copyBtn = result.querySelector('#bb-wheel-copy');
+      if (copyBtn) copyBtn.addEventListener('click', function () {
+        var code = r.coupon_code || '';
+        function done() { UI.toast(I.t('wheel_copied'), 'ok'); }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(done, function () { fallbackCopy(code); done(); });
+        } else fallbackCopy(code);
+        function fallbackCopy(text) {
+          var ta = document.createElement('textarea');
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); } catch (e) { /* best effort */ }
+          ta.remove();
+        }
+      });
+      result.querySelector('#bb-wheel-close2').addEventListener('click', close);
+    }
+
+    function fail(message) {
+      var key = wheelErrorKey(message);
+      result.innerHTML = '<h3 class="bb-wheel-won">' + esc(I.t(key || 'wheel_error')) + '</h3>' +
+        (!key && message ? '<p class="hint">' + esc(message) + '</p>' : '') +
+        '<div class="bb-wheel-actions"><button type="button" class="btn btn-outline" id="bb-wheel-close2">' + esc(I.t('close')) + '</button></div>';
+      result.hidden = false;
+      go.disabled = false;
+      result.querySelector('#bb-wheel-close2').addEventListener('click', close);
+    }
+
+    go.addEventListener('click', function () {
+      if (spinning) return;
+      spinning = true;
+      go.disabled = true;
+      go.textContent = I.t('wheel_spinning');
+      DB.wheelSpin(st.campaign_id).then(function (r) {
+        /* Choreograph the visual wheel to the SERVER-decided segment. */
+        var idx = segs.findIndex(function (s) { return String(s.position) === String(r.position || (r.prize && r.prize.position)); });
+        if (idx === -1) idx = 0;
+        var seg = 360 / segs.length;
+        var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var target;
+        if (reduced) {
+          target = rotation;
+        } else {
+          /* centre of the winning segment under the top pointer */
+          var jitter = (Math.random() - 0.5) * seg * 0.5;
+          var desired = rotation - (rotation % 360) + 360 * 5 + (360 - (idx * seg + seg / 2 + jitter));
+          target = desired;
+        }
+        if (!reduced) {
+          disc.style.transform = 'rotate(' + target.toFixed(2) + 'deg)';
+          rotation = target;
+          setTimeout(function () { showResult(r); }, 4200);
+        } else {
+          showResult(r);
+        }
+      }).catch(function (err) {
+        spinning = false;
+        go.textContent = I.t('wheel_spin');
+        fail(err && err.message);
+      });
+    });
+  }
+
   /* ----------------------------------------------------------------
      Boot
   ---------------------------------------------------------------- */
@@ -892,6 +1220,8 @@
     wireGlobal();
     updateCounts();
     I.apply();
+    initPopup();
+    initWheel();
     if (opts.rerender) {
       document.addEventListener('lang:change', function () { opts.rerender(); });
     }
