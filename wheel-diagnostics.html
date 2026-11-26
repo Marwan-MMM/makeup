@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blush Beauty — Wheel Diagnostics</title>
+  <style>
+    :root { --pink: #F72585; --ink: #2C2823; --line: #E8E2D9; --ok: #1B7F4D; --warn: #B3700B; --bad: #C0392B; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Georgia, 'Times New Roman', serif; background: #FBF9F6; color: var(--ink); }
+    header { background: var(--pink); color: #fff; padding: 18px clamp(16px, 4vw, 32px); }
+    header h1 { margin: 0; font-size: clamp(1.15rem, 4.5vw, 1.5rem); letter-spacing: .04em; }
+    header p { margin: 6px 0 0; font-size: 13px; opacity: .92; }
+    main { max-width: 860px; margin: 0 auto; padding: clamp(14px, 3vw, 28px); }
+    .bar { display: flex; align-items: center; gap: 10px; margin: 14px 0; }
+    button { background: var(--pink); color: #fff; border: none; border-radius: 10px; padding: 12px 22px; font-size: 15px; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .summary { font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-top: 8px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; vertical-align: top; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; background: #F4EFE8; }
+    tr:last-child td { border-bottom: none; }
+    .tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }
+    .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+    .tag.ok { background: #E7F4EC; } .tag.warn { background: #FBF1DF; } .tag.bad { background: #F9E7E4; }
+    td code, .note code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: #F4EFE8; padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+    .verdict { margin-top: 16px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: #fff; font-size: 14px; line-height: 1.55; }
+    .verdict h2 { margin: 0 0 8px; font-size: 15px; }
+    .verdict ol, .verdict ul { margin: 6px 0 0; padding-inline-start: 22px; }
+    .verdict li { margin-bottom: 6px; }
+    .note { font-size: 12.5px; color: #6E675E; margin-top: 10px; line-height: 1.5; }
+    .table-wrap { overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Wheel of Fortune — Diagnostics</h1>
+    <p>Stage-by-stage check of the spin service. Read-only: no spin is performed, nothing is recorded, no prize is awarded.</p>
+  </header>
+  <main>
+    <div class="bar">
+      <button id="run" type="button">Run diagnostics</button>
+      <span class="summary" id="summary"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th style="width:52px">#</th><th style="width:23%">Check</th><th style="width:88px">Result</th><th>Detail</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="4">Press “Run diagnostics” to start.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="verdict" id="verdict" hidden></div>
+    <p class="note">Runs entirely in your browser against the project configured in <code>config.js</code>. Stages 5–6 send crafted requests to the wheel-spin function and the public state RPC only — the spin-shaped request uses a non-existent campaign id, so the function stops at its identity guard and never reaches the prize roll.</p>
+  </main>
+  <script src="config.js"></script>
+  <script>
+  (function () {
+    var CFG = window.BLUSH_CONFIG || {};
+    var URL_ = String(CFG.SUPABASE_URL || '').replace(/\/+$/, '');
+    var KEY = String(CFG.SUPABASE_ANON_KEY || '');
+    var FN = URL_ + '/functions/v1/wheel-spin';
+    var results = [];
+    var rows = document.getElementById('rows');
+    var verdict = document.getElementById('verdict');
+    var btn = document.getElementById('run');
+
+    function add(n, name, status, detail) {
+      results.push(status);
+      var cls = status === 'PASS' ? 'ok' : status === 'WARN' ? 'warn' : 'bad';
+      rows.insertAdjacentHTML('beforeend',
+        '<tr><td>' + n + '</td><td>' + name + '</td>' +
+        '<td><span class="tag ' + cls + '">' + status + '</span></td>' +
+        '<td>' + detail + '</td></tr>');
+    }
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function fmt(h) {
+      var o = h.get ? h.get('access-control-allow-origin') : null;
+      return o ? 'CORS allow-origin: <code>' + esc(o) + '</code>' : 'CORS headers: not visible to JS (browser security model hides them unless <code>Access-Control-Expose-Headers</code> is set) — a 2xx/expected response here still proves the preflight was accepted.';
+    }
+
+    async function run() {
+      btn.disabled = true; rows.innerHTML = ''; results = []; verdict.hidden = true;
+      var fails = 0, warns = 0;
+
+      /* 1 — configuration (function URL + key used by the frontend) */
+      var urlOk = /^https:\/\/[a-z0-9][a-z0-9-]*\.supabase\.co\/?$/i.test(URL_);
+      var keyOk = KEY.length > 60 && KEY.split('.').length === 3;
+      add(1, 'Site configuration (project URL + anon key)',
+        urlOk && keyOk ? 'PASS' : 'BAD',
+        urlOk
+          ? (keyOk ? 'URL <code>' + esc(URL_) + '</code> and anon key are present and well-formed.'
+                   : 'URL OK, but the anon key does not look like a JWT — check <code>config.js</code>.')
+          : 'SUPABASE_URL in <code>config.js</code> is empty or malformed (expected <code>https://&lt;project-ref&gt;.supabase.co</code>). The storefront cannot call any function.');
+
+      /* 2 — project reachable */
+      var reach = 'BAD', reachNote = '';
+      try {
+        var r2 = await fetch(URL_ + '/auth/v1/health', { headers: { apikey: KEY } });
+        reach = r2.ok ? 'PASS' : 'WARN';
+        reachNote = 'HTTP ' + r2.status + ' from the project — the site CAN reach the Supabase server.';
+      } catch (e) { reachNote = 'Network failure reaching the project — offline, wrong URL, or DNS issue. (' + esc(e.message) + ')'; }
+      add(2, 'Supabase project reachable', reach, reachNote);
+      if (reach === 'BAD') fails++;
+
+      /* 3 — wheel-spin deployed (GET health probe, Run 14) */
+      var dep = 'BAD', depNote = '', depStatus = 0, depJson = null;
+      try {
+        var r3 = await fetch(FN, { headers: { apikey: KEY } });
+        depStatus = r3.status;
+        try { depJson = await r3.json(); } catch (e) { depJson = null; }
+        if (depJson && depJson.ok === true && depJson.service === 'wheel-spin') { dep = 'PASS'; depNote = 'HTTP ' + depStatus + ' JSON <code>{"ok":true,"service":"wheel-spin"}</code> — the function IS deployed and serving.'; }
+        else { depNote = 'HTTP ' + depStatus + ' but not the expected health JSON' + (depJson ? ' (<code>' + esc(JSON.stringify(depJson)).slice(0, 120) + '</code>)' : ' (non-JSON body — gateway/platform error page)') + '.'; }
+      } catch (e) { depNote = 'Network failure on the function URL — with stage 2 passing, this means the <code>wheel-spin</code> function is NOT deployed (the gateway answer is CORS-blocked). (' + esc(e.message) + ')'; }
+      add(3, 'wheel-spin function deployed (GET health)', dep, depNote);
+      if (dep === 'BAD') fails++;
+
+      /* 4 — CORS preflight */
+      var cors = 'BAD', corsNote = '';
+      try {
+        var r4 = await fetch(FN, { method: 'OPTIONS', headers: { 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization, apikey, content-type' } });
+        cors = r4.ok ? 'PASS' : 'WARN';
+        corsNote = 'OPTIONS → HTTP ' + r4.status + '. ' + fmt(r4.headers);
+      } catch (e) { corsNote = 'Preflight rejected/blocked (' + esc(e.message) + '). If stage 3 passed, re-deploy the function — its CORS handler must answer OPTIONS.'; }
+      add(4, 'CORS preflight accepted', cors, corsNote);
+      if (cors === 'BAD') fails++;
+
+      /* 5 — function executes + auth (POST, identity guard) */
+      var auth = 'BAD', authNote = '';
+      try {
+        var r5 = await fetch(FN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: 'Bearer ' + KEY },
+          body: JSON.stringify({ campaign_id: '00000000-0000-0000-0000-000000000000', nonce: 'diagnostics-' + Date.now() })
+        });
+        var j5 = null; try { j5 = await r5.json(); } catch (e) {}
+        if (r5.status === 401 && j5 && j5.participant_token) {
+          auth = 'PASS';
+          authNote = 'HTTP 401 with a fresh participant token — EXPECTED for an anonymous diagnostic request. It proves the function EXECUTED (Deno runtime, env vars, HMAC issuer) and that authentication/JWT verification lets anonymous callers through.';
+        } else if (r5.status === 401) { auth = 'WARN'; authNote = 'HTTP 401 without the expected fresh-token payload — JWT verification may be rejecting even the anon key. Re-deploy with the shipped function.'; }
+        else if (r5.status === 404) { auth = 'BAD'; authNote = 'HTTP 404 — the function is not deployed (or the name differs).'; }
+        else { auth = 'WARN'; authNote = 'HTTP ' + r5.status + (j5 ? ' JSON: <code>' + esc(JSON.stringify(j5)).slice(0, 160) + '</code>' : ' non-JSON body.') + ' Unexpected for this probe — see the execution guide.'; }
+      } catch (e) { authNote = 'Network failure (' + esc(e.message) + ').'; }
+      add(5, 'Function executes + authentication', auth, authNote);
+      if (auth === 'BAD') fails++;
+
+      /* 6 — public state RPC (RLS / grants for the storefront path) */
+      var rpc = 'BAD', rpcNote = '';
+      try {
+        var r6 = await fetch(URL_ + '/rest/v1/rpc/wheel_public_state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: 'Bearer ' + KEY },
+          body: JSON.stringify({ p_participant_token: '' })
+        });
+        var j6 = null; try { j6 = await r6.json(); } catch (e) {}
+        if (r6.ok && j6 && typeof j6.active !== 'undefined') {
+          rpc = 'PASS';
+          rpcNote = 'HTTP 200 — the storefront state RPC works (RLS + grants OK). <code>active:' + esc(JSON.stringify(j6.active)) + '</code>' + (j6.active === false ? ' — no currently published campaign (expected before you publish).' : '.');
+        } else if (r6.status === 404) { rpc = 'BAD'; rpcNote = 'HTTP 404 — <code>wheel_public_state()</code> missing. The Run 12/13 migrations are not applied to THIS project.'; }
+        else { rpc = 'WARN'; rpcNote = 'HTTP ' + r6.status + (j6 ? ' <code>' + esc(JSON.stringify(j6)).slice(0, 160) + '</code>' : '') + ' — see the execution guide.'; }
+      } catch (e) { rpcNote = 'Network failure (' + esc(e.message) + ').'; }
+      add(6, 'Storefront state RPC (RLS/grants)', rpc, rpcNote);
+      if (rpc === 'BAD') fails++;
+
+      /* 7 — migrations marker: wheel_settings readable by admin only is NOT
+         checked here (needs an admin session); covered by stage 6 + SQL guide. */
+      var verdictHtml;
+      if (fails === 0 && warns === 0) {
+        verdictHtml = '<h2 class="ok">All stages passed — the backend is correctly deployed and configured.</h2>' +
+          '<p>The spin path is healthy: the storefront can reach the function, CORS and authentication accept anonymous spins, and the public state RPC works. If a REAL spin still fails, the response now shows the server’s own message — check the campaign status (enabled + published) and that enabled prize probabilities total exactly 100%.</p>';
+      } else {
+        var steps = [];
+        if (dep === 'BAD' || cors === 'BAD' || auth === 'BAD') steps.push('Deploy the updated Edge Functions (from the project root): <code>npx supabase functions deploy wheel-spin</code> and <code>npx supabase functions deploy create-order</code> — then re-run this page. Deployment is a separate action from running SQL; the SQL Editor does not deploy functions.');
+        if (results[0] === 'BAD') steps.push('Fix <code>config.js</code>: set <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> to this project’s values.');
+        if (reach === 'BAD') steps.push('Verify the project URL and that the server is reachable (no VPN/firewall block).');
+        if (rpc === 'BAD') steps.push('Run the required SQL migrations listed in <code>SUPABASE-SQL-EXECUTION-GUIDE.md</code> (the wheel tables/RPC are missing in this project).');
+        if (warns > 0) steps.push('One or more stages need a second look (WARN rows above).');
+        verdictHtml = '<h2 class="bad">' + fails + ' failing stage(s), ' + warns + ' warning(s).</h2><ol>' + steps.map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>';
+      }
+      verdict.innerHTML = verdictHtml;
+      verdict.hidden = false;
+      document.getElementById('summary').textContent =
+        results.filter(function (s) { return s === 'PASS'; }).length + '/' + results.length + ' stages passed';
+      btn.disabled = false;
+    }
+
+    btn.addEventListener('click', function () { run().catch(function (e) { btn.disabled = false; }); });
+  })();
+  </script>
+</body>
+</html>

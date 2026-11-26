@@ -300,15 +300,26 @@ select.input {
   display: flex; align-items: center; gap: 8px;
   font-size: 12.5px; color: var(--ink-2); padding: 8px 0;
 }
-/* Navbar (round 7): soft brand pink #E8A0B0 with DARK text/icons —
-   white on this light pink only reached ~2:1 contrast, dark ink reads
-   at ~7.6:1. Every rule is scoped to .site-header (and the drawer
-   below), so no other pink element on the site is affected. */
+/* Navbar (Run 14): background changed to the EXACT brand pink #F72585
+   on request. Contrast on this vivid pink (relative luminance ≈ 0.228):
+   - pure #FFFFFF on it = 3.78:1 → WCAG AA pass for LARGE text and
+     graphical objects (the 19px/700 wordmark and the 22px icon buttons);
+   - pure #000000 on it = 5.56:1 → WCAG AA pass for the small (13.5px)
+     desktop nav links, so links switch from the old dark-ink tone to
+     solid black (hover feedback becomes an underline instead of a color
+     step, since both states are black);
+   - the old #FBF9F6 whites step up to pure #FFFFFF for the extra margin;
+   - the active-link underline becomes black (var(--pink-deep) was
+     invisible on a pink bar).
+   Every rule stays scoped to .site-header, so no other pink element on
+   the site is affected. The mobile drawer keeps its own deliberate
+   light pink (#FDAFC9) — it is the slide-in menu PANEL, not the navbar
+   bar, and was already designed distinct from the bar. */
 .site-header {
   position: sticky;
   top: 0;
   z-index: 60;
-  background: #E8A0B0;
+  background: #F72585;
   border-bottom: 1px solid rgba(0, 0, 0, .08);
 }
 .header-grid {
@@ -346,8 +357,8 @@ select.input {
    / weight 600 / letter-spacing .34em) provide the original Playfair
    Display sizes untouched. The wordmark is painted with the site's own
    main background color #FBF9F6 (:root --bg), per the round 8 request;
-   navbar background stays #E8A0B0 and no other header element changes
-   color. Footer/admin wordmarks unchanged. */
+   navbar background stays the brand pink bar (Run 14: exact #F72585) and
+   no other header element changes color. Footer/admin wordmarks unchanged. */
 /* Round 8 addendum: the header wordmark becomes the same deliberately
    designed two-line logo as the drawer — ONE vertically stacked
    container with text-align: left, so the left edge of "Blush" and the
@@ -359,16 +370,27 @@ select.input {
   text-align: left;
   line-height: 1;
 }
-.site-header .brand-main { color: #FBF9F6; display: block; }
+/* Run 14: wordmark + icons step to pure #FFFFFF for maximum contrast on
+   #F72585 (3.78:1 — AA for the large wordmark and for icon graphics).
+   Same exclusions as before: the burger (.nav-open) keeps ink on the
+   light surfaces it opens over, and .search-close sits on the light
+   search panel, not on the pink bar. */
+.site-header .brand-main { color: #FFFFFF; display: block; }
 /* Round 8 micro-adjustment: "Beauty" nudged 2px right of "Blush" — a
    physical margin-left (not margin-inline-start) so the shift points
    to the right in RTL too. Subtle: the word still reads as sitting
    directly underneath "Blush". */
-.site-header .brand-sub { color: #FBF9F6; display: block; margin-top: 3px; margin-left: 2px; }
-.site-header .main-nav a { color: rgba(44, 40, 35, .85); }
+.site-header .brand-sub { color: #FFFFFF; display: block; margin-top: 3px; margin-left: 2px; }
+/* Run 14: small (13.5px) desktop nav links go SOLID BLACK on #F72585 —
+   5.56:1, the only color that passes WCAG AA for small text on this
+   background (white manages only 3.78:1). Hover feedback is now an
+   underline (both states are black, so a color step would be invisible);
+   the active underline (::after) is black too — var(--pink-deep) was
+   indistinguishable from the new pink bar. */
+.site-header .main-nav a { color: #000000; }
 .site-header .main-nav a:hover,
-.site-header .main-nav a.active { color: var(--ink); }
-.site-header .main-nav a.active::after { background: var(--pink-deep); }
+.site-header .main-nav a.active { color: #000000; text-decoration: underline; text-underline-offset: 4px; }
+.site-header .main-nav a.active::after { background: #000000; }
 /* Round 8 addendum: the search, wishlist, cart and language controls
    now match the wordmark EXACTLY (#FBF9F6). The SVGs in icon() are
    built with stroke="currentColor" (and fill="currentColor" only for
@@ -379,11 +401,11 @@ select.input {
    panel, not on the pink bar. Hover/active step up to pure white for
    a subtle, brand-consistent state change. Count badges keep their
    own colors (rule below). */
-.site-header .icon-btn:not(.nav-open):not(.search-close) { color: #FBF9F6; }
+.site-header .icon-btn:not(.nav-open):not(.search-close) { color: #FFFFFF; }
 .site-header .icon-btn:not(.nav-open):not(.search-close):hover,
-.site-header .icon-btn:not(.nav-open):not(.search-close):active { color: #FFFFFF; }
-.site-header .lang-btn { border-color: rgba(251, 249, 246, .75); color: #FBF9F6; }
-.site-header .lang-btn:hover { border-color: #FBF9F6; color: #FFFFFF; }
+.site-header .icon-btn:not(.nav-open):not(.search-close):active { color: #FFFFFF; text-shadow: 0 0 1px rgba(255,255,255,.65); }
+.site-header .lang-btn { border-color: rgba(255, 255, 255, .8); color: #FFFFFF; }
+.site-header .lang-btn:hover { border-color: #FFFFFF; color: #FFFFFF; }
 /* Count badges keep deep-pink on white — clearly visible on the bar. */
 .site-header .count-pill { background: #FFFFFF; color: var(--pink-deep); }
 .brand-sub {
@@ -506,7 +528,7 @@ select.input {
      become translucent through a variable change, a stale cached
      stylesheet or a glass effect. Do not replace with rgba/backdrop-filter.
      (Round 8: soft pink #FDAFC9 — deliberately distinct from the
-     navbar's #E8A0B0.) */
+     navbar bar, which is #F72585 since Run 14.) */
   background: #FDAFC9;
   z-index: 71;
   display: flex;
@@ -2014,18 +2036,22 @@ select.input {
   border-radius: 50%;
   pointer-events: none;
 }
-/* Run 13: labels are vertically centered INSIDE their segment — the
-   text block sits at ~60% of the radius (padding-top 20% of the disc
-   width measured from the rim puts its middle mid-segment) — and
-   long prize names WRAP instead of being cut off with ellipses. Font
-   size classes scale with segment count and text length (set in JS). */
+/* Run 13: labels are vertically positioned INSIDE their segment — the
+   text block sits along the label radius (padding-top is measured from
+   the rim) — and long prize names WRAP instead of being cut off with
+   ellipses. Font size classes scale with segment count and text length
+   (set in JS).
+   Run 14: the block moved SLIGHTLY UPWARD within every segment —
+   padding-top 20% → 15% of the disc width (≈55% → ≈63% of the radius),
+   still clear of the rim border and of neighbouring segments, and it
+   scales with the stage size on desktop and mobile alike. */
 .bb-wheel-label {
   position: absolute;
   inset: 0;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 20%;
+  padding-top: 15%;
   pointer-events: none;
 }
 .bb-wheel-label b {

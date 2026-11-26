@@ -1349,16 +1349,29 @@
       : Promise.resolve();
     return proceed.then(function () {
       function diag(status) {
-        if (status === 404) return 'The wheel-spin Edge Function is not deployed on the server yet (HTTP 404). Deploy it from the Supabase CLI or dashboard, then retry.';
+        if (status === 404) return 'The wheel-spin Edge Function is not deployed on the server yet (HTTP 404). Deploy it from the Supabase CLI or dashboard (see SUPABASE-SQL-EXECUTION-GUIDE.md), then retry.';
+        if (status === 401 || status === 403) return 'The wheel service rejected the authorization (HTTP ' + status + '). Verify the site is configured with the correct Supabase project URL and anon key, and that the function is deployed with JWT verification allowed for anonymous spins.';
         if (status === 502 || status === 503) return 'The wheel-spin service is temporarily unavailable (HTTP ' + status + '). Please try again shortly.';
         return null;
       }
       function call(token) {
         var headers = {
           'Content-Type': 'application/json',
-          'apikey': KEY
+          'apikey': KEY,
+          /* Run 14 root-cause fix: supabase-js ALWAYS sends an
+             Authorization header (session token, else the anon key —
+             which is itself a valid JWT). The spin call previously sent
+             NO Authorization for anonymous visitors; on projects with
+             "Enforce JWT verification" enabled for the function, the
+             gateway rejects such requests before the function runs, and
+             that gateway rejection is CORS-blocked — the browser reports
+             it as a raw TypeError ("Load failed"), which is precisely
+             the reported symptom even with the function deployed.
+             Sending the anon key keeps anonymous spins working in BOTH
+             JWT modes without weakening security (the server still
+             resolves identity from a real session when one exists). */
+          'Authorization': 'Bearer ' + (sessionToken || KEY)
         };
-        if (sessionToken) headers.Authorization = 'Bearer ' + sessionToken;
         var body = { campaign_id: campaignId, nonce: nonce };
         if (opts.consumeEntitlement) body.consume_entitlement = true;
         if (token) body.participant_token = token;
@@ -1369,8 +1382,9 @@
         }).catch(function (netErr) {
           /* fetch-level failure: offline, DNS, blocked CORS or an
              undeployed function — surfaced honestly, never faked. */
-          var e = new Error('Could not reach the wheel service. If this persists, the wheel-spin Edge Function is likely not deployed on the server yet.');
+          var e = new Error('Could not reach the wheel service (network or CORS failure). The wheel-spin Edge Function is usually not deployed yet — deploy it (see SUPABASE-SQL-EXECUTION-GUIDE.md), then open wheel-diagnostics.html for a stage-by-stage check.');
           e.status = 0;
+          e.kind = 'network';
           e.diagnostic = String((netErr && netErr.message) || netErr || 'network error');
           throw e;
         }).then(function (res) {
@@ -1378,12 +1392,16 @@
             /* Non-JSON body (error page / empty body) — diagnose by status. */
             var e = new Error(diag(res.status) || ('Wheel service returned an invalid response (HTTP ' + res.status + ').'));
             e.status = res.status;
+            e.kind = res.status === 404 ? 'not_deployed' : 'runtime';
             throw e;
           }).then(function (json) {
             if (json && json.participant_token) wheelSaveToken(json.participant_token);
             if (!res.ok) {
               var e2 = new Error((json && json.error) || diag(res.status) || 'Spin failed');
               e2.status = res.status;
+              e2.kind = res.status === 404 ? 'not_deployed'
+                : (res.status === 401 || res.status === 403) ? 'auth'
+                : (res.status >= 500) ? 'runtime' : 'backend';
               throw e2;
             }
             return json.result;

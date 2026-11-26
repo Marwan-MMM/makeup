@@ -503,11 +503,28 @@
 }
 .hc-current { margin-top: 10px; display: flex; gap: 8px; }
 
-/* Wheel admin table: dense inline prize editing */
+/* Wheel admin table: dense inline prize editing.
+   Run 14 fix: eleven columns were squeezed into the generic 640px table
+   minimum — the Type select clipped to "pe…", selected values hid, and
+   the Label (EN/AR) grid had no room for real prize names. The wrapper
+   already scrolls horizontally (.adm-table-wrap overflow-x: auto), so
+   the table now gets the room it actually needs and every control gets
+   an explicit, content-fitting width. Nothing shrinks below readable
+   sizes; on small screens the card scrolls sideways without hiding any
+   column. */
+.wh-prizes { min-width: 1120px; }
+.wh-prizes th:nth-child(1) { min-width: 320px; }  /* Label (EN / AR) + conditions */
+.wh-prizes th:nth-child(2) { min-width: 180px; }  /* Type */
 .wh-prizes .wh-compact { gap: 6px; }
-.wh-prizes .wh-narrow { width: 72px; }
-.wh-prizes .wh-color { width: 44px; padding: 2px; height: 34px; }
-.wh-prizes input.input, .wh-prizes select.input { font-size: 12px; padding: 6px 8px; }
+.wh-prizes .wh-compact .input { width: 100%; min-width: 140px; }
+.wh-prizes select.input[data-f="prize_type"] { width: auto; min-width: 178px; padding-inline-end: 30px; }
+.wh-prizes .wh-narrow { width: 84px; min-width: 84px; }
+.wh-prizes .wh-color { width: 44px; min-width: 44px; padding: 2px; height: 34px; }
+.wh-prizes input.input, .wh-prizes select.input { font-size: 12.5px; padding: 6px 8px; }
+/* Every admin select keeps its FULL selected text visible — no ellipsis
+   clipping on any dropdown in the dashboard. */
+select.input { text-overflow: ellipsis; }
+.wh-prizes select.input, .adm-toolbar select.input, .adm-form-grid select.input { text-overflow: clip; min-width: 150px; }
 
 /* Popup preview stage (mirrors the storefront card) */
 .pp-preview-stage {
