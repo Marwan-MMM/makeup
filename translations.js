@@ -138,7 +138,7 @@
 
       /* Home */
       home_categories_title: 'Shop by Category',
-      home_categories_sub: 'Two curated worlds of beauty',
+      home_categories_sub: 'Realms of beauty',
       cat_placeholder_note: 'Photography coming soon',
       shop_category_cta: 'Shop now',
       home_flash_title: 'Flash Sales',
@@ -850,6 +850,8 @@
       ad_set_feat_t_ar: 'Featured title (Arabic)',
       ad_set_best_t_en: 'Bestsellers title (English)',
       ad_set_best_t_ar: 'Bestsellers title (Arabic)',
+      ad_set_catsub_en: 'Shop-by-Category caption (English)',
+      ad_set_catsub_ar: 'Shop-by-Category caption (Arabic)',
       ad_set_banners: 'Promotional Banners',
       ad_set_add_banner: 'Add Banner',
       ad_set_banner_hint: 'Banners appear on the homepage. Leave the image empty to show a styled placeholder.',
@@ -1010,7 +1012,7 @@
       shade_of_stock: 'متوفر {n}',
 
       home_categories_title: 'تسوقي حسب الفئة',
-      home_categories_sub: 'عالمان منسّقان من عالم الجمال',
+      home_categories_sub: 'عوالم الجمال',
       cat_placeholder_note: 'الصور قريباً',
       shop_category_cta: 'تسوقي الآن',
       home_flash_title: 'العروض السريعة',
@@ -1711,6 +1713,8 @@
       ad_set_feat_t_ar: 'عنوان المختارات (عربي)',
       ad_set_best_t_en: 'عنوان الأكثر مبيعاً (إنجليزي)',
       ad_set_best_t_ar: 'عنوان الأكثر مبيعاً (عربي)',
+      ad_set_catsub_en: 'التعليق فوق تسوقي حسب الفئة (إنجليزي)',
+      ad_set_catsub_ar: 'التعليق فوق تسوقي حسب الفئة (عربي)',
       ad_set_banners: 'البانرات الدعائية',
       ad_set_add_banner: 'إضافة بانر',
       ad_set_banner_hint: 'تظهر البانرات في الصفحة الرئيسية. اتركي الصورة فارغة لعرض بديل مصمم.',

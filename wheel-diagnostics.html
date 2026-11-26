@@ -104,7 +104,10 @@
       /* 3 — wheel-spin deployed (GET health probe, Run 14) */
       var dep = 'BAD', depNote = '', depStatus = 0, depJson = null;
       try {
-        var r3 = await fetch(FN, { headers: { apikey: KEY } });
+        /* apikey AND Authorization: with "Enforce JWT verification" the
+         gateway checks the Authorization header — sending the anon
+         key there keeps this probe working in BOTH JWT modes. */
+        var r3 = await fetch(FN, { headers: { apikey: KEY, Authorization: 'Bearer ' + KEY } });
         depStatus = r3.status;
         try { depJson = await r3.json(); } catch (e) { depJson = null; }
         if (depJson && depJson.ok === true && depJson.service === 'wheel-spin') { dep = 'PASS'; depNote = 'HTTP ' + depStatus + ' JSON <code>{"ok":true,"service":"wheel-spin"}</code> — the function IS deployed and serving.'; }

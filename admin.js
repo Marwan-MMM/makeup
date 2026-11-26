@@ -2487,6 +2487,8 @@
         field(f('feat-ar'), I.t('ad_set_feat_t_ar'), hp.featured_title_ar, 'rtl') +
         field(f('best-en'), I.t('ad_set_best_t_en'), hp.bestsellers_title_en) +
         field(f('best-ar'), I.t('ad_set_best_t_ar'), hp.bestsellers_title_ar, 'rtl') +
+        field(f('catsub-en'), I.t('ad_set_catsub_en'), hp.home_categories_sub_en) +
+        field(f('catsub-ar'), I.t('ad_set_catsub_ar'), hp.home_categories_sub_ar, 'rtl') +
         '</div></div>' +
 
         '<div class="adm-card"><h2>' + I.t('ad_cat_images') + '</h2>' +
@@ -2619,7 +2621,8 @@
         var updHomepage = sb.from('homepage_settings').update({
           flash_title_en: val(f('flash-en')), flash_title_ar: val(f('flash-ar')),
           featured_title_en: val(f('feat-en')), featured_title_ar: val(f('feat-ar')),
-          bestsellers_title_en: val(f('best-en')), bestsellers_title_ar: val(f('best-ar'))
+          bestsellers_title_en: val(f('best-en')), bestsellers_title_ar: val(f('best-ar')),
+          home_categories_sub_en: val(f('catsub-en')), home_categories_sub_ar: val(f('catsub-ar'))
         }).eq('id', 1);
 
         /* Storage-cleanup run: remember the previous logo so it can be
@@ -3397,11 +3400,22 @@
     return 'conic-gradient(' + stops.join(', ') + ')';
   }
 
-  /* Run 13: same dividing-line overlay as the storefront wheel, so the
-     admin preview renders exactly what visitors will see. */
-  function wheelDividers(n) {
-    var step = (360 / n).toFixed(2);
-    return 'repeating-conic-gradient(from -0.35deg, rgba(255,255,255,.85) 0deg .7deg, transparent .7deg ' + step + 'deg)';
+  /* Run 15: same seamless-segment rule as the storefront wheel (see
+     main.js) — white lines only between identical adjacent colours, so
+     the admin preview renders exactly what visitors will see. */
+  function wheelDividers(segs) {
+    var tones = ['#F72585', '#B5179E', '#7209B7', '#560BAD', '#F8E9F1', '#FFB3C6'];
+    var n = segs.length, step = 360 / n;
+    var html = '';
+    for (var i = 0; i < n; i++) {
+      var j = (i + 1) % n;
+      var c1 = (segs[i].color || tones[i % tones.length]).toLowerCase();
+      var c2 = (segs[j].color || tones[j % tones.length]).toLowerCase();
+      if (c1 === c2) {
+        html += '<div class="bb-wheel-line" style="transform:rotate(' + ((i + 1) * step).toFixed(2) + 'deg)" aria-hidden="true"></div>';
+      }
+    }
+    return html;
   }
 
   /* Run 13: shared label sizing for preview + storefront parity — the
@@ -3840,7 +3854,7 @@
           '<div class="bb-wheel-stage bb-wheel-stage-admin">' +
           '<div class="bb-wheel-pointer">' + UI.icon('chevDown', 18) + '</div>' +
           '<div class="bb-wheel-disc bb-wheel-disc-admin" style="background:' + wheelGradient(segs) + '">' +
-          '<div class="bb-wheel-lines" style="background:' + wheelDividers(segs.length) + '" aria-hidden="true"></div>' +
+          '<div class="bb-wheel-lines" aria-hidden="true">' + wheelDividers(segs) + '</div>' +
           segs.map(function (s, i) {
             var seg = 360 / segs.length;
             var mid = i * seg + seg / 2;

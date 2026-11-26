@@ -320,7 +320,10 @@
     featured_title_en: 'Featured',
     featured_title_ar: 'مختارات',
     bestsellers_title_en: 'Bestsellers',
-    bestsellers_title_ar: 'الأكثر مبيعاً'
+    bestsellers_title_ar: 'الأكثر مبيعاً',
+    /* Run 15: editable "Shop by Category" caption (defaults). */
+    home_categories_sub_en: 'Realms of beauty',
+    home_categories_sub_ar: 'عوالم الجمال'
   };
 
   var BANNERS = [

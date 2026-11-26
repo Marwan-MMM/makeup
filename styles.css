@@ -388,8 +388,12 @@ select.input {
    the active underline (::after) is black too — var(--pink-deep) was
    indistinguishable from the new pink bar. */
 .site-header .main-nav a { color: #000000; }
+/* Run 15: the text-decoration underline here DUPLICATED the designed
+   ::after indicator (below), rendering a double underline under the
+   active item. Removed — exactly one underline remains, the ::after
+   bar, black for contrast on the pink header (unchanged). */
 .site-header .main-nav a:hover,
-.site-header .main-nav a.active { color: #000000; text-decoration: underline; text-underline-offset: 4px; }
+.site-header .main-nav a.active { color: #000000; }
 .site-header .main-nav a.active::after { background: #000000; }
 /* Round 8 addendum: the search, wishlist, cart and language controls
    now match the wordmark EXACTLY (#FBF9F6). The SVGs in icon() are
@@ -2035,6 +2039,20 @@ select.input {
   inset: 0;
   border-radius: 50%;
   pointer-events: none;
+}
+/* Run 15: hairline divider used ONLY between adjacent segments whose
+   colours are identical (emitted per-boundary in JS). A full-height
+   hairline rotated about the disc centre = one radial boundary. The
+   lines layer is empty whenever all adjacent colours differ, so the
+   coloured segments meet seamlessly with no white gaps. */
+.bb-wheel-line {
+  position: absolute;
+  left: calc(50% - 0.7px);
+  top: 0;
+  width: 1.4px;
+  height: 100%;
+  background: rgba(255, 255, 255, .85);
+  transform-origin: 50% 50%;
 }
 /* Run 13: labels are vertically positioned INSIDE their segment — the
    text block sits along the label radius (padding-top is measured from

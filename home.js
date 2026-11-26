@@ -19,6 +19,10 @@
         setIf('flash-title', I.lang === 'ar' ? (hp.flash_title_ar || hp.flash_title_en) : (hp.flash_title_en || hp.flash_title_ar));
         setIf('featured-title', I.lang === 'ar' ? (hp.featured_title_ar || hp.featured_title_en) : (hp.featured_title_en || hp.featured_title_ar));
         setIf('best-title', I.lang === 'ar' ? (hp.bestsellers_title_ar || hp.bestsellers_title_en) : (hp.bestsellers_title_en || hp.bestsellers_title_ar));
+        /* Run 15: the caption above "Shop by Category" is admin-editable
+           (homepage_settings.home_categories_sub_en/_ar). An empty value
+           falls back to the dictionary text — same rule as the titles. */
+        setIf('home-categories-sub', I.lang === 'ar' ? (hp.home_categories_sub_ar || hp.home_categories_sub_en) : (hp.home_categories_sub_en || hp.home_categories_sub_ar));
       }).catch(function () { /* keep dictionary titles */ });
 
       renderCategories();

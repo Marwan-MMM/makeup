@@ -485,10 +485,17 @@
       '</article>';
   }
 
+  /* Run 15: display ONLY the most specific category. A product with a
+     subcategory shows the subcategory alone ("Lipstick", "Lip Gloss");
+     a product assigned directly to a top-level category shows that
+     category's name (the most specific applicable label). The parent
+     chain is never shown. Display-only: category IDs, slugs, product
+     associations, filtering and navigation are untouched. */
   function catLabel(p) {
-    var c = I18N.lang === 'ar' ? (p.catNameAr || p.catNameEn) : (p.catNameEn || p.catNameAr);
     var s = I18N.lang === 'ar' ? (p.subNameAr || p.subNameEn) : (p.subNameEn || p.subNameAr);
-    return s ? (c + ' \u00b7 ' + s) : (c || '');
+    if (s) return s;
+    var c = I18N.lang === 'ar' ? (p.catNameAr || p.catNameEn) : (p.catNameEn || p.catNameAr);
+    return c || '';
   }
 
   function qtyStepperHtml(qty, max, ctx) {
@@ -1087,12 +1094,29 @@
     return 'conic-gradient(' + stops.join(', ') + ')';
   }
 
-  /* Run 13: thin radial dividing lines between the segments, generated
-     with the SAME segment count as the colors so they always line up.
-     Rendered as an overlay above the color gradient, below the labels. */
-  function wheelDividers(n) {
-    var step = (360 / n).toFixed(2);
-    return 'repeating-conic-gradient(from -0.35deg, rgba(255,255,255,.85) 0deg .7deg, transparent .7deg ' + step + 'deg)';
+  /* Run 15: adjacent segments now MEET SEAMLESSLY. Run 13 drew thin
+     white radial lines between EVERY pair of segments; visitors read
+     them as unwanted white gaps. They are removed. A hairline divider
+     is now emitted ONLY where two adjacent segments resolve to the
+     SAME colour (impossible with the cycling palette; possible only
+     when an admin assigns identical colours to neighbouring prizes),
+     so differently-coloured segments have no white spacing while
+     identical neighbours stay distinguishable — the wheel can never
+     render as one solid colour. Returns HTML for .bb-wheel-line
+     elements inside the (now empty by default) .bb-wheel-lines layer. */
+  function wheelDividers(segs) {
+    var tones = ['#F72585', '#B5179E', '#7209B7', '#560BAD', '#F8E9F1', '#FFB3C6'];
+    var n = segs.length, step = 360 / n;
+    var html = '';
+    for (var i = 0; i < n; i++) {
+      var j = (i + 1) % n;
+      var c1 = (segs[i].color || tones[i % tones.length]).toLowerCase();
+      var c2 = (segs[j].color || tones[j % tones.length]).toLowerCase();
+      if (c1 === c2) {
+        html += '<div class="bb-wheel-line" style="transform:rotate(' + ((i + 1) * step).toFixed(2) + 'deg)" aria-hidden="true"></div>';
+      }
+    }
+    return html;
   }
 
   function openWheelModal(st, segs) {
@@ -1108,7 +1132,7 @@
       '<div class="bb-wheel-stage">' +
       '<div class="bb-wheel-pointer">' + icon('chevDown', 18) + '</div>' +
       '<div class="bb-wheel-disc" style="background:' + wheelGradient(segs) + '">' +
-      '<div class="bb-wheel-lines" style="background:' + wheelDividers(segs.length) + '" aria-hidden="true"></div>' +
+      '<div class="bb-wheel-lines" aria-hidden="true">' + wheelDividers(segs) + '</div>' +
       segs.map(function (s, i) {
         var seg = 360 / segs.length;
         var mid = i * seg + seg / 2;
